@@ -28,7 +28,7 @@ def test_drawer_points_is_mean_including_zeros() -> None:
 def test_drawer_points_rounds_half_up() -> None:
     # Mean 8.5 must round up to 9, not down (banker's rounding trap).
     assert drawer_points([10, 7]) == 9  # 8.5 -> 9
-    assert drawer_points([9, 8]) == 9   # 8.5 -> 9
+    assert drawer_points([9, 8]) == 9  # 8.5 -> 9
 
 
 def test_drawer_points_zero_when_nobody_guessed() -> None:

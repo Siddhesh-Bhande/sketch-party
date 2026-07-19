@@ -21,9 +21,9 @@ def test_is_correct_ignores_case_and_spacing() -> None:
 
 
 def test_near_miss_detects_single_character_difference() -> None:
-    assert is_near_miss("aple", "apple") is True     # deletion
-    assert is_near_miss("appl", "apple") is True      # deletion
-    assert is_near_miss("axple", "apple") is True     # substitution
+    assert is_near_miss("aple", "apple") is True  # deletion
+    assert is_near_miss("appl", "apple") is True  # deletion
+    assert is_near_miss("axple", "apple") is True  # substitution
 
 
 def test_exact_match_is_not_a_near_miss() -> None:

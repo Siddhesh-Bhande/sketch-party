@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
-class GamePhase(str, Enum):
+class GamePhase(str, Enum):  # noqa: UP042
     LOBBY = "lobby"
     WORD_SELECT = "word_select"
     DRAWING = "drawing"
@@ -14,13 +14,13 @@ class GamePhase(str, Enum):
     GAME_OVER = "game_over"
 
 
-class Difficulty(str, Enum):
+class Difficulty(str, Enum):  # noqa: UP042
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
 
 
-class GuessResult(str, Enum):
+class GuessResult(str, Enum):  # noqa: UP042
     CORRECT = "correct"
     NEAR = "near"
     WRONG = "wrong"
