@@ -1,4 +1,4 @@
-# Sketch Party — Design Spec
+# Sketch Party - Design Spec
 
 Date: 2026-07-18
 Status: Approved (brainstorming complete)

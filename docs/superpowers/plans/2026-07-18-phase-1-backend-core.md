@@ -1,4 +1,4 @@
-# Sketch Party — Phase 1: Backend Domain Core Implementation Plan
+# Sketch Party - Phase 1: Backend Domain Core Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -30,13 +30,13 @@ This spec is built in phases, one PR each. This document is **Phase 1 only**. La
 
 Created under `sketch-party/api/`:
 
-- `pyproject.toml` — project + tool config (ruff, mypy strict, pytest), mirrors DesertCharge.
-- `src/sketch_party/__init__.py` — package marker.
-- `src/sketch_party/models.py` — enums and dataclasses shared across the core (`GamePhase`, `Difficulty`, `Player`, `RoomSettings`, `Turn`, `GuessResult`, `GuessOutcome`).
-- `src/sketch_party/words.py` — curated tiered word list + `pick_word_choices`.
-- `src/sketch_party/matching.py` — `normalize`, `is_correct`, `is_near_miss` (+ internal Levenshtein).
-- `src/sketch_party/scoring.py` — `points_for_elapsed`, `drawer_points`.
-- `src/sketch_party/room.py` — `Room` state machine + `RoomManager`.
+- `pyproject.toml` - project + tool config (ruff, mypy strict, pytest), mirrors DesertCharge.
+- `src/sketch_party/__init__.py` - package marker.
+- `src/sketch_party/models.py` - enums and dataclasses shared across the core (`GamePhase`, `Difficulty`, `Player`, `RoomSettings`, `Turn`, `GuessResult`, `GuessOutcome`).
+- `src/sketch_party/words.py` - curated tiered word list + `pick_word_choices`.
+- `src/sketch_party/matching.py` - `normalize`, `is_correct`, `is_near_miss` (+ internal Levenshtein).
+- `src/sketch_party/scoring.py` - `points_for_elapsed`, `drawer_points`.
+- `src/sketch_party/room.py` - `Room` state machine + `RoomManager`.
 - `tests/test_words.py`, `tests/test_matching.py`, `tests/test_scoring.py`, `tests/test_room.py`.
 
 Repo-root files created for CI/hygiene: `README.md`, `LICENSE`, `.env.example`, `.github/workflows/ci.yml`. (`.gitignore` already exists.)
@@ -599,7 +599,7 @@ git commit -m "feat: add time-bucket and drawer-average scoring"
 
 ---
 
-## Task 6: Room lobby — join, leave, away
+## Task 6: Room lobby - join, leave, away
 
 **Files:**
 - Create: `sketch-party/api/src/sketch_party/room.py`
