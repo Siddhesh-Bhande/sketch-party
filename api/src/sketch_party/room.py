@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from collections.abc import Callable
 
+from sketch_party.matching import is_correct, is_near_miss
 from sketch_party.models import (
     GamePhase,
     GuessOutcome,
@@ -13,11 +14,20 @@ from sketch_party.models import (
     RoomSettings,
     Turn,
 )
+from sketch_party.scoring import drawer_points, points_for_elapsed
 from sketch_party.words import pick_word_choices
 
 PALETTE = [
-    "#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#8338ec",
-    "#ff6b6b", "#06d6a0", "#118ab2", "#ef476f", "#ffd166",
+    "#e63946",
+    "#f4a261",
+    "#2a9d8f",
+    "#457b9d",
+    "#8338ec",
+    "#ff6b6b",
+    "#06d6a0",
+    "#118ab2",
+    "#ef476f",
+    "#ffd166",
 ]
 
 
@@ -110,8 +120,39 @@ class Room:
         self.phase = GamePhase.DRAWING
         self.turn = Turn(drawer_id=player_id, word=word, start_time=self._clock())
 
+    def submit_guess(self, player_id: str, text: str) -> GuessOutcome:
+        if self.phase is not GamePhase.DRAWING or self.turn is None:
+            return GuessOutcome(result=GuessResult.IGNORED)
+        if player_id == self.turn.drawer_id or player_id not in self.players:
+            return GuessOutcome(result=GuessResult.IGNORED)
+        if player_id in self.turn.guessed:
+            return GuessOutcome(result=GuessResult.IGNORED)
+
+        if is_correct(text, self.turn.word):
+            elapsed = self._clock() - self.turn.start_time
+            points = points_for_elapsed(elapsed)
+            self.turn.guessed[player_id] = points
+            self.players[player_id].score += points
+            turn_over = self._all_non_drawers_guessed()
+            if turn_over:
+                self.end_turn()
+            return GuessOutcome(result=GuessResult.CORRECT, points=points, turn_over=turn_over)
+        if is_near_miss(text, self.turn.word):
+            return GuessOutcome(result=GuessResult.NEAR)
+        return GuessOutcome(result=GuessResult.WRONG)
+
+    def _all_non_drawers_guessed(self) -> bool:
+        assert self.turn is not None
+        non_drawers = [pid for pid in self.order if pid != self.turn.drawer_id]
+        return all(pid in self.turn.guessed for pid in non_drawers)
+
     def end_turn(self) -> None:
-        if self.turn is None:
+        if self.turn is None or self.turn.ended:
             raise RoomError("no active turn")
+        drawer_id = self.turn.drawer_id
+        non_drawer_points = [
+            self.turn.guessed.get(pid, 0) for pid in self.order if pid != drawer_id
+        ]
+        self.players[drawer_id].score += drawer_points(non_drawer_points)
         self.turn.ended = True
         self.phase = GamePhase.TURN_END

@@ -1,6 +1,7 @@
+import contextlib
 import random
 
-from sketch_party.models import GamePhase, RoomSettings
+from sketch_party.models import GamePhase, GuessResult, RoomSettings
 from sketch_party.room import Room, RoomError
 
 
@@ -144,3 +145,83 @@ def test_game_over_after_all_turns() -> None:
         room.end_turn()
         room.next_turn()
     assert room.phase is GamePhase.GAME_OVER
+
+
+def drawing_room(players: int = 3) -> tuple[Room, dict[str, float]]:
+    clock = {"t": 0.0}
+    room = Room("WXYZ", RoomSettings(), random.Random(0), lambda: clock["t"])
+    for i in range(players):
+        room.add_player(f"p{i}", f"Player{i}")
+    room.start_game()
+    room.choose_word("p0", room.word_choices[0])  # p0 is drawer, word chosen
+    return room, clock
+
+
+def test_correct_guess_awards_bucket_points() -> None:
+    room, clock = drawing_room()
+    word = room.turn.word  # type: ignore[union-attr]
+    clock["t"] = 30.0  # 30s -> 10 points
+    outcome = room.submit_guess("p1", word)
+    assert outcome.result is GuessResult.CORRECT
+    assert outcome.points == 10
+    assert room.players["p1"].score == 10
+
+
+def test_drawer_cannot_guess() -> None:
+    room, _ = drawing_room()
+    outcome = room.submit_guess("p0", room.turn.word)  # type: ignore[union-attr]
+    assert outcome.result is GuessResult.IGNORED
+
+
+def test_wrong_guess_scores_nothing() -> None:
+    room, _ = drawing_room()
+    outcome = room.submit_guess("p1", "definitely-not-the-word")
+    assert outcome.result is GuessResult.WRONG
+    assert room.players["p1"].score == 0
+
+
+def test_near_miss_is_reported_without_points() -> None:
+    room, _ = drawing_room()
+    target = room.turn.word  # type: ignore[union-attr]
+    outcome = room.submit_guess("p1", target[:-1])  # drop last char -> distance 1
+    assert outcome.result is GuessResult.NEAR
+    assert room.players["p1"].score == 0
+
+
+def test_second_correct_guess_by_same_player_is_ignored() -> None:
+    room, _ = drawing_room()
+    word = room.turn.word  # type: ignore[union-attr]
+    room.submit_guess("p1", word)
+    outcome = room.submit_guess("p1", word)
+    assert outcome.result is GuessResult.IGNORED
+
+
+def test_turn_ends_when_all_non_drawers_guess() -> None:
+    room, _clock = drawing_room(players=3)  # drawer p0, guessers p1 p2
+    word = room.turn.word  # type: ignore[union-attr]
+    room.submit_guess("p1", word)
+    outcome = room.submit_guess("p2", word)
+    assert outcome.turn_over is True
+    assert room.phase is GamePhase.TURN_END
+
+
+def test_drawer_gets_mean_of_guessers_including_zeros() -> None:
+    room, clock = drawing_room(players=3)  # drawer p0, guessers p1 p2
+    word = room.turn.word  # type: ignore[union-attr]
+    clock["t"] = 30.0
+    room.submit_guess("p1", word)  # 10 points
+    # p2 never guesses; end the turn by time.
+    room.end_turn()
+    # Mean of [10, 0] = 5.
+    assert room.players["p0"].score == 5
+
+
+def test_end_turn_is_idempotent_scorewise() -> None:
+    room, _ = drawing_room(players=2)
+    word = room.turn.word  # type: ignore[union-attr]
+    room.submit_guess("p1", word)  # ends the turn (only one non-drawer)
+    drawer_score = room.players["p0"].score
+    # Turn already ended; a manual end_turn must not double-score.
+    with contextlib.suppress(RoomError):
+        room.end_turn()
+    assert room.players["p0"].score == drawer_score
