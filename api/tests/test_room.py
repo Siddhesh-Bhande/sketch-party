@@ -225,3 +225,82 @@ def test_end_turn_is_idempotent_scorewise() -> None:
     with contextlib.suppress(RoomError):
         room.end_turn()
     assert room.players["p0"].score == drawer_score
+
+
+# --- Code review follow-ups: color collision, and defensive guards ---
+
+
+def test_color_reassigned_after_leave_rejoin_avoids_collision() -> None:
+    room = make_room()
+    room.add_player("p0", "Alex")
+    room.add_player("p1", "Sam")
+    room.remove_player("p0")
+    room.add_player("p2", "Robin")
+    assert room.players["p2"].color != room.players["p1"].color
+    colors = [p.color for p in room.players.values()]
+    assert len(colors) == len(set(colors))
+
+
+def test_end_turn_when_drawer_left_does_not_raise() -> None:
+    room = started_room(players=3)
+    room.choose_word("p0", room.word_choices[0])
+    word = room.turn.word  # type: ignore[union-attr]
+    room.submit_guess("p1", word)  # only one of two non-drawers guessed
+    room.remove_player("p0")
+    room.end_turn()
+    assert room.phase is GamePhase.TURN_END
+
+
+def test_next_turn_with_emptied_roster_ends_game() -> None:
+    room = started_room(players=2)
+    room.choose_word(room.current_drawer_id(), room.word_choices[0])
+    room.end_turn()
+    room.remove_player("p0")
+    room.remove_player("p1")
+    room.next_turn()
+    assert room.phase is GamePhase.GAME_OVER
+
+
+def test_choose_word_by_non_drawer_raises() -> None:
+    room = started_room(players=3)
+    try:
+        room.choose_word("p1", room.word_choices[0])
+        raise AssertionError("expected RoomError")
+    except RoomError:
+        pass
+
+
+def test_choose_word_with_unoffered_word_raises() -> None:
+    room = started_room(players=3)
+    try:
+        room.choose_word("p0", "not-an-offered-word")
+        raise AssertionError("expected RoomError")
+    except RoomError:
+        pass
+
+
+def test_choose_word_outside_word_select_raises() -> None:
+    room = started_room(players=3)
+    room.choose_word("p0", room.word_choices[0])  # now in DRAWING
+    try:
+        room.choose_word("p0", room.word_choices[0])
+        raise AssertionError("expected RoomError")
+    except RoomError:
+        pass
+
+
+def test_submit_guess_after_game_over_is_ignored() -> None:
+    room = started_room(players=2)
+    for _ in range(6):  # 2 players * 3 rounds = 6 turns
+        room.choose_word(room.current_drawer_id(), room.word_choices[0])
+        room.end_turn()
+        room.next_turn()
+    assert room.phase is GamePhase.GAME_OVER
+    outcome = room.submit_guess("p0", "anything")
+    assert outcome.result is GuessResult.IGNORED
+
+
+def test_submit_guess_from_unknown_player_is_ignored() -> None:
+    room, _ = drawing_room()
+    outcome = room.submit_guess("ghost", "anything")
+    assert outcome.result is GuessResult.IGNORED

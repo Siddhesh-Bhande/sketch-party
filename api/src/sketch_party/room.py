@@ -1,4 +1,4 @@
-"""Server-authoritative room state machine and room manager."""
+"""Server-authoritative room state machine."""
 
 from __future__ import annotations
 
@@ -61,7 +61,8 @@ class Room:
             raise RoomError("player already in room")
         if len(self.players) >= self.settings.max_players:
             raise RoomError("room is full")
-        color = PALETTE[len(self.order) % len(PALETTE)]
+        used = {p.color for p in self.players.values()}
+        color = next((c for c in PALETTE if c not in used), PALETTE[len(self.order) % len(PALETTE)])
         player = Player(id=player_id, name=name, color=color)
         self.players[player_id] = player
         self.order.append(player_id)
@@ -80,6 +81,12 @@ class Room:
         return len(self.players) == 0
 
     def current_drawer_id(self) -> str:
+        """Return the drawer for the current turn, derived from join order.
+
+        This is authoritative while choosing a word (`WORD_SELECT`). Once a turn is
+        active, `self.turn.drawer_id` is the source of truth for who is drawing, since
+        the roster (and therefore this index) can change if players leave mid-turn.
+        """
         if not self.order:
             raise RoomError("no players")
         return self.order[self.turns_played % len(self.order)]
@@ -103,7 +110,7 @@ class Room:
         if self.phase is not GamePhase.TURN_END:
             raise RoomError("turn not finished")
         self.turns_played += 1
-        if self.turns_played >= self.total_turns:
+        if self.turns_played >= self.total_turns or not self.order:
             self.phase = GamePhase.GAME_OVER
             self.turn = None
             return
@@ -153,6 +160,7 @@ class Room:
         non_drawer_points = [
             self.turn.guessed.get(pid, 0) for pid in self.order if pid != drawer_id
         ]
-        self.players[drawer_id].score += drawer_points(non_drawer_points)
+        if drawer_id in self.players:
+            self.players[drawer_id].score += drawer_points(non_drawer_points)
         self.turn.ended = True
         self.phase = GamePhase.TURN_END
