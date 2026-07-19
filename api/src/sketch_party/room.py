@@ -13,6 +13,7 @@ from sketch_party.models import (
     RoomSettings,
     Turn,
 )
+from sketch_party.words import pick_word_choices
 
 PALETTE = [
     "#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#8338ec",
@@ -67,3 +68,50 @@ class Room:
 
     def is_empty(self) -> bool:
         return len(self.players) == 0
+
+    def current_drawer_id(self) -> str:
+        if not self.order:
+            raise RoomError("no players")
+        return self.order[self.turns_played % len(self.order)]
+
+    def start_game(self) -> None:
+        if self.phase is not GamePhase.LOBBY:
+            raise RoomError("game already started")
+        if len(self.order) < 2:
+            raise RoomError("need at least two players")
+        self.total_turns = self.settings.rounds * len(self.order)
+        self.turns_played = 0
+        self.round = 1
+        self._begin_turn()
+
+    def _begin_turn(self) -> None:
+        self.phase = GamePhase.WORD_SELECT
+        self.word_choices = pick_word_choices(self._rng)
+        self.turn = None
+
+    def next_turn(self) -> None:
+        if self.phase is not GamePhase.TURN_END:
+            raise RoomError("turn not finished")
+        self.turns_played += 1
+        if self.turns_played >= self.total_turns:
+            self.phase = GamePhase.GAME_OVER
+            self.turn = None
+            return
+        self.round = (self.turns_played // len(self.order)) + 1
+        self._begin_turn()
+
+    def choose_word(self, player_id: str, word: str) -> None:
+        if self.phase is not GamePhase.WORD_SELECT:
+            raise RoomError("not choosing a word")
+        if player_id != self.current_drawer_id():
+            raise RoomError("only the drawer chooses the word")
+        if word not in self.word_choices:
+            raise RoomError("word not offered")
+        self.phase = GamePhase.DRAWING
+        self.turn = Turn(drawer_id=player_id, word=word, start_time=self._clock())
+
+    def end_turn(self) -> None:
+        if self.turn is None:
+            raise RoomError("no active turn")
+        self.turn.ended = True
+        self.phase = GamePhase.TURN_END
