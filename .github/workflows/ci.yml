@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No em dashes
+        run: |
+          python3 - <<'PY'
+          import subprocess, sys
+          files = subprocess.check_output(["git", "ls-files"]).decode().splitlines()
+          em_dash = chr(0x2014)
+          offenders = []
+          for path in files:
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      for num, line in enumerate(handle, 1):
+                          if em_dash in line:
+                              offenders.append(f"{path}:{num}")
+              except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+                  continue
+          if offenders:
+              print("Em dash (U+2014) is forbidden by rules.md. Found in:")
+              print("\n".join(offenders))
+              sys.exit(1)
+          print("No em dashes found.")
+          PY
+      - name: Required project files present
+        run: |
+          missing=0
+          for file in README.md LICENSE .gitignore .env.example; do
+            if [ ! -f "$file" ]; then
+              echo "Missing required file: $file"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] && echo "All required files present."
+          exit "$missing"
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.26"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install dependencies
+        run: uv sync
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy
+      - name: Test
+        run: uv run pytest -v
