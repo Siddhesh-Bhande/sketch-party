@@ -8,7 +8,9 @@ test cases or between an app instance and a would-be reload.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import random
 import time
 
@@ -38,6 +40,8 @@ from sketch_party.protocol import (
 )
 from sketch_party.room import RoomError
 
+logger = logging.getLogger(__name__)
+
 _MIN_ROUNDS = 1
 _MAX_ROUNDS = 5
 _MIN_TURN_SECONDS = 30
@@ -47,6 +51,7 @@ _MAX_TURN_SECONDS = 600
 _CLOSE_ORIGIN_NOT_ALLOWED = 4403
 _CLOSE_ROOM_NOT_FOUND = 4404
 _CLOSE_BAD_FIRST_MESSAGE = 4400
+_CLOSE_JOIN_REJECTED = 4409
 
 
 class CreateRoomBody(BaseModel):
@@ -138,6 +143,13 @@ def create_app() -> FastAPI:
             raw = await websocket.receive_text()
         except WebSocketDisconnect:
             return
+        except Exception:
+            # No player is registered yet (handle_connect hasn't run), so
+            # there is nothing to clean up in the hub - just close cleanly.
+            logger.exception("ws pre-join receive crashed for room %s", code)
+            with contextlib.suppress(Exception):
+                await websocket.close(code=_CLOSE_BAD_FIRST_MESSAGE)
+            return
 
         try:
             first_msg = client_adapter.validate_json(raw)
@@ -154,7 +166,7 @@ def create_app() -> FastAPI:
             )
         except RoomError as exc:
             await websocket.send_text(json.dumps(dump(ErrorMsg(message=str(exc)))))
-            await websocket.close(code=_CLOSE_BAD_FIRST_MESSAGE)
+            await websocket.close(code=_CLOSE_JOIN_REJECTED)
             return
 
         try:
@@ -171,5 +183,14 @@ def create_app() -> FastAPI:
                     await connections.send(code, player_id, ErrorMsg(message=str(exc)))
         except WebSocketDisconnect:
             await hub.handle_disconnect(code, player_id)
+        except Exception:
+            # A non-text (binary) frame makes receive_text() raise a bare
+            # KeyError, not WebSocketDisconnect - without this clause that
+            # skips hub.handle_disconnect entirely, leaving the player
+            # registered as connected=True forever (a ghost seat). Always
+            # run disconnect cleanup before letting the crash propagate.
+            logger.exception("ws loop crashed for %s/%s", code, player_id)
+            await hub.handle_disconnect(code, player_id)
+            raise
 
     return app

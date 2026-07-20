@@ -97,3 +97,74 @@ def test_create_room_rate_limited() -> None:
     with TestClient(app) as client:
         statuses = [client.post("/rooms", json={}).status_code for _ in range(11)]
         assert 429 in statuses
+
+
+@pytest.mark.timeout(8)
+def test_binary_frame_from_guesser_does_not_leave_ghost_connection() -> None:
+    """Regression: a non-text frame must not crash the ws loop past cleanup.
+
+    `websocket.receive_text()` raises a bare `KeyError` (not
+    `WebSocketDisconnect`) when the client sends a binary frame. Before the
+    fix, that KeyError propagated straight out of the endpoint, skipping
+    `hub.handle_disconnect` entirely: the sender stayed registered in
+    `ConnectionManager` and the player stayed `connected=True` in the
+    `Room` - a ghost seat other clients are never told about (no
+    `playerLeft` is ever broadcast). This test proves the drawer DOES
+    receive `playerLeft` for the guesser after the guesser sends a binary
+    frame, which is only possible if `handle_disconnect` ran. Bounded by a
+    tight per-test timeout: pre-fix, the drawer never receives another
+    frame at all, so `_wait_for` blocks forever without it.
+
+    The fix re-raises after cleanup ("before propagating" per the crash
+    still being real and worth surfacing to the ASGI server/logs), so the
+    guesser's own `websocket_connect` context still surfaces that KeyError
+    when it exits (`TestClient` replays the crashed task's exception at
+    `__exit__`) - that is expected and asserted here, not swallowed.
+    """
+    app = create_app()
+    with TestClient(app) as client:
+        code = client.post("/rooms", json={"rounds": 1, "turnSeconds": 240}).json()["code"]
+
+        with client.websocket_connect(f"/ws/{code}") as d:
+            d.send_json({"type": "join", "name": "Drawer"})
+
+            with (
+                pytest.raises(KeyError),
+                client.websocket_connect(f"/ws/{code}") as g,
+            ):
+                g.send_json({"type": "join", "name": "Guesser"})
+                _drain(d, 2)
+                _drain(g, 1)
+
+                d.send_json({"type": "startGame"})
+                choices = _wait_for(d, "wordChoices")["choices"]
+                d.send_json({"type": "chooseWord", "word": choices[0]})
+                _wait_for(d, "turnStarted")
+
+                # Guesser misbehaves: a binary frame, not JSON text.
+                g.send_bytes(b"\x00\x01\x02")
+
+            # If handle_disconnect ran before the crash propagated, the
+            # drawer is told the guesser left.
+            left = _wait_for(d, "playerLeft", max_frames=10)
+            assert left["playerId"]
+
+
+def test_join_rejected_by_room_error_closes_with_distinct_code() -> None:
+    """A RoomError during the join handshake (e.g. duplicate player id) must
+    close with a different code (4409) than a malformed first message
+    (4400), so a future client can tell "rejected" apart from "garbled"."""
+    app = create_app()
+    with TestClient(app) as client:
+        code = client.post("/rooms", json={}).json()["code"]
+        with client.websocket_connect(f"/ws/{code}") as a:
+            a.send_json({"type": "join", "name": "Alex", "playerId": "dup"})
+            _wait_for(a, "roomState")
+
+            with client.websocket_connect(f"/ws/{code}") as b:
+                b.send_json({"type": "join", "name": "AlexAgain", "playerId": "dup"})
+                error = b.receive_json()
+                assert error["type"] == "error"
+                with pytest.raises(WebSocketDisconnect) as excinfo:
+                    b.receive_text()
+                assert excinfo.value.code == 4409
