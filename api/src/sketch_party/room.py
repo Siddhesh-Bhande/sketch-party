@@ -164,3 +164,19 @@ class Room:
             self.players[drawer_id].score += drawer_points(non_drawer_points)
         self.turn.ended = True
         self.phase = GamePhase.TURN_END
+
+    def reset(self) -> None:
+        """Return to LOBBY for a "play again" round, keeping the roster.
+
+        Zeroes every player's score and clears all game-progress state
+        (turn, round, turns played/total). Players, join order, and colors
+        are preserved so the same seats can start a fresh game.
+        """
+        self.phase = GamePhase.LOBBY
+        for player in self.players.values():
+            player.score = 0
+        self.turn = None
+        self.round = 0
+        self.turns_played = 0
+        self.total_turns = 0
+        self.word_choices = []

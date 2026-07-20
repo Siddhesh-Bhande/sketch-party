@@ -304,3 +304,38 @@ def test_submit_guess_from_unknown_player_is_ignored() -> None:
     room, _ = drawing_room()
     outcome = room.submit_guess("ghost", "anything")
     assert outcome.result is GuessResult.IGNORED
+
+
+# --- Phase 2: reset() for "play again" ---------------------------------------
+
+
+def test_reset_returns_to_lobby_and_keeps_roster() -> None:
+    room, clock = drawing_room(players=2)  # p0 drawer, p1 guesser
+    word = room.turn.word  # type: ignore[union-attr]
+    clock["t"] = 30.0
+    room.submit_guess("p1", word)  # scores both players and ends the turn
+    assert room.players["p0"].score > 0
+    assert room.players["p1"].score > 0
+
+    room.reset()
+
+    assert room.phase is GamePhase.LOBBY
+    assert room.turn is None
+    assert room.round == 0
+    assert room.turns_played == 0
+    assert room.total_turns == 0
+    assert room.word_choices == []
+    assert all(p.score == 0 for p in room.players.values())
+    # roster/order/colors are preserved so the same seats can play again.
+    assert room.order == ["p0", "p1"]
+    assert set(room.players) == {"p0", "p1"}
+
+
+def test_reset_then_start_game_works_again() -> None:
+    room = started_room(players=2)
+    room.choose_word(room.current_drawer_id(), room.word_choices[0])
+    room.end_turn()
+    room.reset()
+    room.start_game()
+    assert room.phase is GamePhase.WORD_SELECT
+    assert room.current_drawer_id() == "p0"
