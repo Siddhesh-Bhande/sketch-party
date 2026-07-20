@@ -16,6 +16,7 @@ turn via `end_and_advance` once `room.settings.turn_seconds` has elapsed.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -40,6 +41,8 @@ from sketch_party.protocol import (
 )
 from sketch_party.room import Room, RoomError
 from sketch_party.scoring import drawer_points
+
+logger = logging.getLogger(__name__)
 
 TimerFn = Callable[[str], "Awaitable[None] | None"]
 
@@ -116,36 +119,49 @@ class GameHub:
         `seconds_left` is computed from the injected clock and
         `room.turn.start_time` rather than by counting loop iterations, so
         it stays correct even if a tick is delayed by scheduling jitter.
+
+        This task is fire-and-forget (nothing awaits it), so an exception
+        escaping the loop body would otherwise vanish silently, wedging the
+        room with a dead timer and no client-visible signal. The inner
+        `except Exception` logs and stops the task instead. Since
+        `asyncio.CancelledError` is a `BaseException`, not an `Exception`
+        (Python 3.8+), it always propagates past that clause to the outer
+        handler untouched.
         """
         try:
             while True:
                 await asyncio.sleep(self._tick_interval)
                 should_end = False
-                async with self._lock(code):
-                    room = self._rooms.get(code)
-                    if (
-                        room is None
-                        or room.turns_played != turn_id
-                        or room.phase is not GamePhase.DRAWING
-                    ):
+                try:
+                    async with self._lock(code):
+                        room = self._rooms.get(code)
+                        if (
+                            room is None
+                            or room.turns_played != turn_id
+                            or room.phase is not GamePhase.DRAWING
+                        ):
+                            return
+                        assert room.turn is not None
+                        elapsed = self._clock() - room.turn.start_time
+                        cap = room.settings.turn_seconds
+                        if elapsed >= cap:
+                            should_end = True
+                        else:
+                            seconds_left = max(0, int(cap - elapsed))
+                            await self._connections.broadcast(
+                                code, TimerTickMsg(seconds_left=seconds_left)
+                            )
+                    if should_end:
+                        # Detach before advancing: end_and_advance() calls
+                        # cancel_timer() as a safety net, and we must not
+                        # let that target THIS task (see
+                        # _default_cancel_timer).
+                        if self._timer_tasks.get(code) is asyncio.current_task():
+                            self._timer_tasks.pop(code, None)
+                        await self.end_and_advance(code)
                         return
-                    assert room.turn is not None
-                    elapsed = self._clock() - room.turn.start_time
-                    cap = room.settings.turn_seconds
-                    if elapsed >= cap:
-                        should_end = True
-                    else:
-                        seconds_left = max(0, int(cap - elapsed))
-                        await self._connections.broadcast(
-                            code, TimerTickMsg(seconds_left=seconds_left)
-                        )
-                if should_end:
-                    # Detach before advancing: end_and_advance() calls
-                    # cancel_timer() as a safety net, and we must not let
-                    # that target THIS task (see _default_cancel_timer).
-                    if self._timer_tasks.get(code) is asyncio.current_task():
-                        self._timer_tasks.pop(code, None)
-                    await self.end_and_advance(code)
+                except Exception:
+                    logger.exception("turn timer for room %s crashed; the room may be stuck", code)
                     return
         except asyncio.CancelledError:
             return
@@ -247,30 +263,33 @@ class GameHub:
             room.choose_word(player_id, word)
             assert room.turn is not None
             drawer = room.players[room.turn.drawer_id]
+            round_ = room.round
+            word_length = len(room.turn.word)
+            turn_seconds = room.settings.turn_seconds
+
+            # Built once and reused for every guesser (only the recipient
+            # changes); the drawer gets its own copy with the real word.
+            guesser_msg = TurnStartedMsg(
+                drawer_id=drawer.id,
+                drawer_name=drawer.name,
+                round=round_,
+                word_length=word_length,
+                turn_seconds=turn_seconds,
+                word=None,
+            )
             for pid in room.order:
                 if pid == drawer.id:
                     continue
-                await self._connections.send(
-                    code,
-                    pid,
-                    TurnStartedMsg(
-                        drawer_id=drawer.id,
-                        drawer_name=drawer.name,
-                        round=room.round,
-                        word_length=len(room.turn.word),
-                        turn_seconds=room.settings.turn_seconds,
-                        word=None,
-                    ),
-                )
+                await self._connections.send(code, pid, guesser_msg)
             await self._connections.send(
                 code,
                 drawer.id,
                 TurnStartedMsg(
                     drawer_id=drawer.id,
                     drawer_name=drawer.name,
-                    round=room.round,
-                    word_length=len(room.turn.word),
-                    turn_seconds=room.settings.turn_seconds,
+                    round=round_,
+                    word_length=word_length,
+                    turn_seconds=turn_seconds,
                     word=room.turn.word,
                 ),
             )
@@ -298,12 +317,12 @@ class GameHub:
             await self.end_and_advance(code)
 
     async def handle_play_again(self, code: str, player_id: str) -> None:
-        await self._call_timer(self._cancel_timer, code)
         async with self._lock(code):
             room = self._get_room(code)
             self._require_host(room, player_id)
             room.reset()
             await self._broadcast_room_state(room)
+        await self._call_timer(self._cancel_timer, code)
 
     async def handle_disconnect(self, code: str, player_id: str) -> None:
         was_drawer_mid_turn = False
@@ -319,6 +338,13 @@ class GameHub:
             else:
                 room.mark_away(player_id)
             if room.is_empty():
+                # Defensive: no timer should be live here in practice (a
+                # mid-game disconnect marks the player away rather than
+                # removing them, so is_empty() only fires via the LOBBY
+                # remove_player path above, where no turn - and hence no
+                # timer - exists yet). Cancel anyway rather than depend on
+                # that invariant holding forever.
+                await self._call_timer(self._cancel_timer, code)
                 self._rooms.remove_empty(code)
                 self._locks.pop(code, None)
                 self._advancing.pop(code, None)

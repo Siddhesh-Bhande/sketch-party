@@ -239,14 +239,11 @@ async def test_correct_guess_scores_broadcasts_and_ends_turn_on_last_guesser() -
 
 
 async def test_guess_over_max_length_raises() -> None:
+    # The length check fires before any room/player lookup, so no room or
+    # players need to exist for this to raise.
     h = make_harness(max_guess_length=5)
-    code = h.rooms.create_room(RoomSettings())
-    a, b = FakeWS(), FakeWS()
-    p1 = await h.hub.handle_connect(code, "Drawer", None, a)
-    p2 = await h.hub.handle_connect(code, "Guesser", None, b)
     with pytest.raises(RoomError):
-        await h.hub.handle_guess(code, p2, "way-too-long-for-the-cap")
-    assert p1  # silence unused warning while documenting the drawer exists
+        await h.hub.handle_guess("NOPE", "ghost", "way-too-long-for-the-cap")
 
 
 async def test_full_two_player_game_ends_with_game_over_broadcast() -> None:
@@ -315,6 +312,40 @@ async def test_play_again_is_host_only_and_resets_to_lobby() -> None:
     assert all(p.score == 0 for p in room.players.values())
     assert a.last("roomState")["phase"] == "lobby"
     assert b.last("roomState")["phase"] == "lobby"
+    # cancel_timer still fires on the success path (defensive: no-op if no
+    # turn was live, but must happen so a stray timer can never survive
+    # a reset).
+    assert code in h.cancelled
+
+
+async def test_non_host_play_again_during_drawing_does_not_kill_timer() -> None:
+    """Regression: playAgain from a non-host must not touch the live timer.
+
+    Previously handle_play_again called cancel_timer BEFORE the host check,
+    so any player could kill the running turn timer by sending playAgain
+    without permission, leaving the room stuck in DRAWING with no timer
+    left to ever end the turn (a one-message DoS).
+    """
+    h = make_harness()
+    code = h.rooms.create_room(RoomSettings())
+    a, b = FakeWS(), FakeWS()
+    p1 = await h.hub.handle_connect(code, "Host", None, a)
+    p2 = await h.hub.handle_connect(code, "Guest", None, b)
+    await h.hub.handle_start(code, p1)
+    room = h.rooms.get(code)
+    assert room is not None
+    word = room.word_choices[0]
+    await h.hub.handle_choose_word(code, p1, word)
+    assert room.phase is GamePhase.DRAWING
+    assert h.started == [code]
+
+    with pytest.raises(RoomError):
+        await h.hub.handle_play_again(code, p2)  # non-host, mid-turn
+
+    assert h.cancelled == []  # the live timer must be untouched
+    room = h.rooms.get(code)
+    assert room is not None
+    assert room.phase is GamePhase.DRAWING  # room state must be untouched
 
 
 # --- disconnect ---------------------------------------------------------
