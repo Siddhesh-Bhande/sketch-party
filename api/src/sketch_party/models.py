@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class GamePhase(str, Enum):  # noqa: UP042
+class GamePhase(StrEnum):
     LOBBY = "lobby"
     WORD_SELECT = "word_select"
     DRAWING = "drawing"
@@ -14,13 +14,13 @@ class GamePhase(str, Enum):  # noqa: UP042
     GAME_OVER = "game_over"
 
 
-class Difficulty(str, Enum):  # noqa: UP042
+class Difficulty(StrEnum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
 
 
-class GuessResult(str, Enum):  # noqa: UP042
+class GuessResult(StrEnum):
     CORRECT = "correct"
     NEAR = "near"
     WRONG = "wrong"
