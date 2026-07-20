@@ -6,9 +6,11 @@ always does so under a per-room `asyncio.Lock` (see `_lock`). It wires a
 client intents into `Room` calls, and broadcasts the resulting wire messages.
 
 The turn timer is injected as a `start_timer`/`cancel_timer` callback pair so
-this module is unit-testable without real wall-clock time; the default is a
-no-op pair, letting callers (and this module's own future timer) supply real
-behavior.
+this module is unit-testable without real wall-clock time (`test_hub.py`
+passes recording stubs). When left unspecified, `GameHub` wires up a real
+asyncio-task-based timer (`test_timer.py` exercises that default): one task
+per room, ticking once a second, broadcasting `TimerTickMsg`, and ending the
+turn via `end_and_advance` once `room.settings.turn_seconds` has elapsed.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from sketch_party.protocol import (
     PlayerLeftMsg,
     PlayerView,
     RoomStateMsg,
+    TimerTickMsg,
     TurnEndedMsg,
     TurnScore,
     TurnStartedMsg,
@@ -41,10 +44,6 @@ from sketch_party.scoring import drawer_points
 TimerFn = Callable[[str], "Awaitable[None] | None"]
 
 
-def _noop_timer(code: str) -> None:
-    return None
-
-
 class GameHub:
     """Owns rooms + connections; the sole async mutator of `Room` state."""
 
@@ -54,19 +53,30 @@ class GameHub:
         connections: ConnectionManager,
         settings: Settings,
         clock: Callable[[], float] = time.monotonic,
-        start_timer: TimerFn = _noop_timer,
-        cancel_timer: TimerFn = _noop_timer,
+        start_timer: TimerFn | None = None,
+        cancel_timer: TimerFn | None = None,
+        tick_interval: float = 1.0,
     ) -> None:
         self._rooms = rooms
         self._connections = connections
         self._settings = settings
         self._clock = clock
-        self._start_timer = start_timer
-        self._cancel_timer = cancel_timer
+        self._tick_interval = tick_interval
         self._locks: dict[str, asyncio.Lock] = {}
         # Guards against double-advance: last turns_played id this code has
         # already begun ending/advancing. See `end_and_advance`.
         self._advancing: dict[str, int] = {}
+        self._timer_tasks: dict[str, asyncio.Task[None]] = {}
+        # Bound methods can't be literal parameter defaults, hence the
+        # None-sentinel: omitting start_timer/cancel_timer wires the real
+        # asyncio-task-based timer; tests that need to unit-test the hub
+        # without real time pass their own recording stubs instead.
+        self._start_timer: TimerFn = (
+            start_timer if start_timer is not None else self._default_start_timer
+        )
+        self._cancel_timer: TimerFn = (
+            cancel_timer if cancel_timer is not None else self._default_cancel_timer
+        )
 
     def _lock(self, code: str) -> asyncio.Lock:
         lock = self._locks.get(code)
@@ -80,6 +90,65 @@ class GameHub:
         result = fn(code)
         if result is not None:
             await result
+
+    def _default_start_timer(self, code: str) -> None:
+        room = self._rooms.get(code)
+        if room is None:
+            return
+        self._default_cancel_timer(code)
+        turn_id = room.turns_played
+        self._timer_tasks[code] = asyncio.create_task(self._run_timer(code, turn_id))
+
+    def _default_cancel_timer(self, code: str) -> None:
+        task = self._timer_tasks.pop(code, None)
+        # Guard against self-cancellation: `_run_timer` pops itself before
+        # calling `end_and_advance` (see below), but a task must never
+        # request its own cancellation from within its own coroutine chain -
+        # `.cancel()` would inject CancelledError at the next await point
+        # inside that same call chain (e.g. the interstitial sleep),
+        # aborting the turn-advance it just triggered.
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _run_timer(self, code: str, turn_id: int) -> None:
+        """Tick once a second and end the turn once the cap is reached.
+
+        `seconds_left` is computed from the injected clock and
+        `room.turn.start_time` rather than by counting loop iterations, so
+        it stays correct even if a tick is delayed by scheduling jitter.
+        """
+        try:
+            while True:
+                await asyncio.sleep(self._tick_interval)
+                should_end = False
+                async with self._lock(code):
+                    room = self._rooms.get(code)
+                    if (
+                        room is None
+                        or room.turns_played != turn_id
+                        or room.phase is not GamePhase.DRAWING
+                    ):
+                        return
+                    assert room.turn is not None
+                    elapsed = self._clock() - room.turn.start_time
+                    cap = room.settings.turn_seconds
+                    if elapsed >= cap:
+                        should_end = True
+                    else:
+                        seconds_left = max(0, int(cap - elapsed))
+                        await self._connections.broadcast(
+                            code, TimerTickMsg(seconds_left=seconds_left)
+                        )
+                if should_end:
+                    # Detach before advancing: end_and_advance() calls
+                    # cancel_timer() as a safety net, and we must not let
+                    # that target THIS task (see _default_cancel_timer).
+                    if self._timer_tasks.get(code) is asyncio.current_task():
+                        self._timer_tasks.pop(code, None)
+                    await self.end_and_advance(code)
+                    return
+        except asyncio.CancelledError:
+            return
 
     def _get_room(self, code: str) -> Room:
         room = self._rooms.get(code)
