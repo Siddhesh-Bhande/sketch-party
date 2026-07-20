@@ -1,0 +1,45 @@
+@import 'tailwindcss';
+
+@import '@fontsource/fredoka';
+@import '@fontsource/public-sans';
+@import '@fontsource/ibm-plex-mono';
+
+@theme {
+  --color-paper: #f6f3ec;
+  --color-surface: #ffffff;
+  --color-ink: #1b1e28;
+  --color-ink-muted: #565b68;
+  --color-line: #e6e0d5;
+  --color-accent: #ef5b4c;
+  --color-accent-strong: #b23d31;
+  --color-p1: #e63946;
+  --color-p2: #f4a261;
+  --color-p3: #2a9d8f;
+  --color-p4: #457b9d;
+  --color-p5: #8338ec;
+  --color-p6: #ff6b6b;
+  --color-p7: #06d6a0;
+  --color-p8: #118ab2;
+  --color-p9: #ef476f;
+  --color-p10: #ffd166;
+  --font-display: 'Fredoka', system-ui, sans-serif;
+  --font-sans: 'Public Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
