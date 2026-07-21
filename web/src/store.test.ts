@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
-import { applyServerMessage, deriveScreen, type GameState } from './store'
-import type { PlayerView, RoomStateMsg } from './protocol'
+import {
+  applyServerMessage,
+  deriveScreen,
+  initialGameState,
+  useGameStore,
+  type GameState,
+} from './store'
+import type { PlayerView, RoomStateMsg, Stroke } from './protocol'
 
 function makePlayer(overrides: Partial<PlayerView> = {}): PlayerView {
   return { id: 'p1', name: 'Ada', color: '#e63946', score: 0, connected: true, ...overrides }
@@ -13,8 +19,14 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     me: { playerId: null, name: null },
     room: null,
     error: null,
+    strokes: [],
+    wordChoices: [],
     ...overrides,
   }
+}
+
+function makeStroke(overrides: Partial<Stroke> = {}): Stroke {
+  return { id: 's1', color: '#1b1e28', size: 4, points: [{ x: 0, y: 0 }], ...overrides }
 }
 
 function makeRoomStateMsg(overrides: Partial<RoomStateMsg> = {}): RoomStateMsg {
@@ -130,6 +142,119 @@ describe('applyServerMessage', () => {
     const patch = applyServerMessage(state, { type: 'timerTick', secondsLeft: 30 })
 
     expect(patch).toEqual({})
+  })
+
+  it('strokeBroadcast appends a new stroke by id', () => {
+    const state = makeState({ strokes: [] })
+    const patch = applyServerMessage(state, { type: 'strokeBroadcast', stroke: makeStroke() })
+
+    expect(patch.strokes).toEqual([makeStroke()])
+  })
+
+  it('strokeBroadcast upserts (replaces in place) an existing stroke by id', () => {
+    const existing = makeStroke({ points: [{ x: 0, y: 0 }] })
+    const other = makeStroke({ id: 's2', points: [{ x: 0.9, y: 0.9 }] })
+    const state = makeState({ strokes: [existing, other] })
+    const updated = makeStroke({
+      points: [
+        { x: 0, y: 0 },
+        { x: 0.5, y: 0.5 },
+      ],
+    })
+    const patch = applyServerMessage(state, { type: 'strokeBroadcast', stroke: updated })
+
+    expect(patch.strokes).toEqual([updated, other])
+  })
+
+  it('canvasReplace replaces the whole strokes array', () => {
+    const state = makeState({ strokes: [makeStroke({ id: 'old' })] })
+    const next = [makeStroke({ id: 'a' }), makeStroke({ id: 'b' })]
+    const patch = applyServerMessage(state, { type: 'canvasReplace', strokes: next })
+
+    expect(patch.strokes).toEqual(next)
+  })
+
+  it('canvasCleared empties the strokes array', () => {
+    const state = makeState({ strokes: [makeStroke()] })
+    const patch = applyServerMessage(state, { type: 'canvasCleared' })
+
+    expect(patch.strokes).toEqual([])
+  })
+
+  it('turnStarted clears strokes for the new turn', () => {
+    const state = makeState({ strokes: [makeStroke()] })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: null,
+    })
+
+    expect(patch.strokes).toEqual([])
+  })
+
+  it('wordChoices sets the offered words', () => {
+    const state = makeState()
+    const patch = applyServerMessage(state, {
+      type: 'wordChoices',
+      choices: ['cat', 'dog', 'boat'],
+    })
+
+    expect(patch.wordChoices).toEqual(['cat', 'dog', 'boat'])
+  })
+
+  it('turnStarted clears any leftover word choices for the new turn', () => {
+    const state = makeState({ wordChoices: ['cat', 'dog', 'boat'] })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: null,
+    })
+
+    expect(patch.wordChoices).toEqual([])
+  })
+})
+
+describe('useGameStore.applyLocalStroke', () => {
+  beforeEach(() => {
+    useGameStore.setState({ ...initialGameState })
+  })
+
+  it('appends a new stroke optimistically', () => {
+    useGameStore.getState().applyLocalStroke(makeStroke())
+
+    expect(useGameStore.getState().strokes).toEqual([makeStroke()])
+  })
+
+  it('upserts an existing stroke by id rather than duplicating it', () => {
+    useGameStore.setState({ strokes: [makeStroke({ points: [{ x: 0, y: 0 }] })] })
+    const updated = makeStroke({
+      points: [
+        { x: 0, y: 0 },
+        { x: 0.5, y: 0.5 },
+      ],
+    })
+
+    useGameStore.getState().applyLocalStroke(updated)
+
+    expect(useGameStore.getState().strokes).toEqual([updated])
+  })
+})
+
+describe('useGameStore.reset', () => {
+  it('clears strokes back to an empty array', () => {
+    useGameStore.setState({ strokes: [makeStroke()] })
+
+    useGameStore.getState().reset()
+
+    expect(useGameStore.getState().strokes).toEqual([])
   })
 })
 

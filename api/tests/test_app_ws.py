@@ -69,6 +69,38 @@ def test_create_room_and_play_a_turn() -> None:
             assert result["points"] == 10
 
 
+def test_drawer_stroke_is_broadcast_to_guesser_over_real_websocket() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        code = client.post("/rooms", json={"rounds": 1, "turnSeconds": 240}).json()["code"]
+
+        with (
+            client.websocket_connect(f"/ws/{code}") as d,
+            client.websocket_connect(f"/ws/{code}") as g,
+        ):
+            d.send_json({"type": "join", "name": "Drawer"})
+            g.send_json({"type": "join", "name": "Guesser"})
+            _drain(d, 2)
+            _drain(g, 1)
+
+            d.send_json({"type": "startGame"})
+            choices = _wait_for(d, "wordChoices")["choices"]
+            d.send_json({"type": "chooseWord", "word": choices[0]})
+            _wait_for(d, "turnStarted")
+            _wait_for(g, "turnStarted")
+
+            stroke = {
+                "id": "stroke-1",
+                "color": "#000000",
+                "size": 4,
+                "points": [{"x": 0.1, "y": 0.2}, {"x": 0.3, "y": 0.4}],
+            }
+            d.send_json({"type": "stroke", "stroke": stroke})
+
+            broadcast = _wait_for(g, "strokeBroadcast")
+            assert broadcast["stroke"]["id"] == "stroke-1"
+
+
 def test_connect_to_missing_room_closes_socket() -> None:
     app = create_app()
     with (

@@ -14,6 +14,20 @@ export interface PlayerView {
   connected: boolean
 }
 
+// --- Shared drawing models ---------------------------------------------------
+
+export interface Point {
+  x: number
+  y: number
+}
+
+export interface Stroke {
+  id: string
+  color: string
+  size: number
+  points: Point[]
+}
+
 // --- Client messages (outgoing) ---------------------------------------------
 
 export interface JoinMsg {
@@ -40,7 +54,28 @@ export interface PlayAgainMsg {
   type: 'playAgain'
 }
 
-export type ClientMessage = JoinMsg | StartGameMsg | ChooseWordMsg | GuessMsg | PlayAgainMsg
+export interface StrokeMsg {
+  type: 'stroke'
+  stroke: Stroke
+}
+
+export interface UndoMsg {
+  type: 'undo'
+}
+
+export interface ClearCanvasMsg {
+  type: 'clearCanvas'
+}
+
+export type ClientMessage =
+  | JoinMsg
+  | StartGameMsg
+  | ChooseWordMsg
+  | GuessMsg
+  | PlayAgainMsg
+  | StrokeMsg
+  | UndoMsg
+  | ClearCanvasMsg
 
 // --- Server messages (incoming) ---------------------------------------------
 
@@ -128,6 +163,20 @@ export interface ErrorMsg {
   message: string
 }
 
+export interface StrokeBroadcastMsg {
+  type: 'strokeBroadcast'
+  stroke: Stroke
+}
+
+export interface CanvasReplaceMsg {
+  type: 'canvasReplace'
+  strokes: Stroke[]
+}
+
+export interface CanvasClearedMsg {
+  type: 'canvasCleared'
+}
+
 export type ServerMessage =
   | RoomStateMsg
   | PlayerJoinedMsg
@@ -140,6 +189,9 @@ export type ServerMessage =
   | TurnEndedMsg
   | GameOverMsg
   | ErrorMsg
+  | StrokeBroadcastMsg
+  | CanvasReplaceMsg
+  | CanvasClearedMsg
 
 /**
  * Parse a raw WebSocket text frame into a typed ServerMessage.
