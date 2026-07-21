@@ -29,12 +29,15 @@ from sketch_party.manager import ConnectionManager, RoomManager
 from sketch_party.models import RoomSettings
 from sketch_party.protocol import (
     ChooseWordMsg,
+    ClearCanvasMsg,
     ClientMessage,
     ErrorMsg,
     GuessMsg,
     JoinMsg,
     PlayAgainMsg,
     StartGameMsg,
+    StrokeMsg,
+    UndoMsg,
     client_adapter,
     dump,
 )
@@ -73,6 +76,12 @@ async def _dispatch(hub: GameHub, code: str, player_id: str, msg: ClientMessage)
         await hub.handle_guess(code, player_id, msg.text)
     elif isinstance(msg, PlayAgainMsg):
         await hub.handle_play_again(code, player_id)
+    elif isinstance(msg, StrokeMsg):
+        await hub.handle_stroke(code, player_id, msg.stroke)
+    elif isinstance(msg, UndoMsg):
+        await hub.handle_undo(code, player_id)
+    elif isinstance(msg, ClearCanvasMsg):
+        await hub.handle_clear(code, player_id)
     elif isinstance(msg, JoinMsg):
         raise RoomError("already joined")
 

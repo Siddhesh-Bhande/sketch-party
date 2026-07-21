@@ -25,6 +25,8 @@ from sketch_party.config import Settings
 from sketch_party.manager import ConnectionManager, RoomManager, Sender
 from sketch_party.models import GamePhase, GuessResult
 from sketch_party.protocol import (
+    CanvasClearedMsg,
+    CanvasReplaceMsg,
     FinalScore,
     GameOverMsg,
     GuessResultMsg,
@@ -33,6 +35,8 @@ from sketch_party.protocol import (
     PlayerLeftMsg,
     PlayerView,
     RoomStateMsg,
+    Stroke,
+    StrokeBroadcastMsg,
     TimerTickMsg,
     TurnEndedMsg,
     TurnScore,
@@ -70,6 +74,9 @@ class GameHub:
         # already begun ending/advancing. See `end_and_advance`.
         self._advancing: dict[str, int] = {}
         self._timer_tasks: dict[str, asyncio.Task[None]] = {}
+        # Per-room ordered stroke buffer. Transport/ephemeral drawing data,
+        # not game logic, so it lives here rather than on the pure `Room`.
+        self._strokes: dict[str, list[Stroke]] = {}
         # Bound methods can't be literal parameter defaults, hence the
         # None-sentinel: omitting start_timer/cancel_timer wires the real
         # asyncio-task-based timer; tests that need to unit-test the hub
@@ -245,6 +252,12 @@ class GameHub:
             room.add_player(player_id, truncated_name)
             await self._connections.connect(code, player_id, sender)
             await self._connections.send(code, player_id, self._room_state_msg(room, player_id))
+            if room.phase is GamePhase.DRAWING:
+                # Mid-turn replay: a joiner needs the current canvas, not
+                # just the strokes drawn from here on.
+                await self._connections.send(
+                    code, player_id, CanvasReplaceMsg(strokes=list(self._strokes.get(code, [])))
+                )
             await self._connections.broadcast(
                 code, PlayerJoinedMsg(player=self._player_view(room, player_id)), exclude=player_id
             )
@@ -261,6 +274,7 @@ class GameHub:
         async with self._lock(code):
             room = self._get_room(code)
             room.choose_word(player_id, word)
+            self._strokes[code] = []
             assert room.turn is not None
             drawer = room.players[room.turn.drawer_id]
             round_ = room.round
@@ -316,6 +330,56 @@ class GameHub:
             await self._call_timer(self._cancel_timer, code)
             await self.end_and_advance(code)
 
+    def _is_current_drawer(self, room: Room, player_id: str) -> bool:
+        return (
+            room.phase is GamePhase.DRAWING
+            and room.turn is not None
+            and room.turn.drawer_id == player_id
+        )
+
+    async def handle_stroke(self, code: str, player_id: str, stroke: Stroke) -> None:
+        """Buffer + broadcast one stroke. Silently ignored (never raises) when
+        the sender isn't the current drawer, the room isn't DRAWING, or the
+        stroke/buffer is oversized - a stray/late/malicious message here
+        should never crash the connection.
+        """
+        async with self._lock(code):
+            room = self._rooms.get(code)
+            if room is None or not self._is_current_drawer(room, player_id):
+                return
+            if len(stroke.points) > self._settings.max_stroke_points:
+                return
+            strokes = self._strokes.setdefault(code, [])
+            for i, existing in enumerate(strokes):
+                if existing.id == stroke.id:
+                    strokes[i] = stroke
+                    break
+            else:
+                if len(strokes) >= self._settings.max_strokes:
+                    return
+                strokes.append(stroke)
+            await self._connections.broadcast(
+                code, StrokeBroadcastMsg(stroke=stroke), exclude=player_id
+            )
+
+    async def handle_undo(self, code: str, player_id: str) -> None:
+        async with self._lock(code):
+            room = self._rooms.get(code)
+            if room is None or not self._is_current_drawer(room, player_id):
+                return
+            strokes = self._strokes.setdefault(code, [])
+            if strokes:
+                strokes.pop()
+            await self._connections.broadcast(code, CanvasReplaceMsg(strokes=list(strokes)))
+
+    async def handle_clear(self, code: str, player_id: str) -> None:
+        async with self._lock(code):
+            room = self._rooms.get(code)
+            if room is None or not self._is_current_drawer(room, player_id):
+                return
+            self._strokes[code] = []
+            await self._connections.broadcast(code, CanvasClearedMsg())
+
     async def handle_play_again(self, code: str, player_id: str) -> None:
         async with self._lock(code):
             room = self._get_room(code)
@@ -348,6 +412,7 @@ class GameHub:
                 self._rooms.remove_empty(code)
                 self._locks.pop(code, None)
                 self._advancing.pop(code, None)
+                self._strokes.pop(code, None)
                 return
             await self._connections.broadcast(code, PlayerLeftMsg(player_id=player_id))
             if room.turn is not None and not room.turn.ended and room.turn.drawer_id == player_id:

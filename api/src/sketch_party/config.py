@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     max_guess_length: int = 60
     turn_seconds: int = 240
     interstitial_seconds: int = 5
+    max_stroke_points: int = 2000
+    max_strokes: int = 500
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

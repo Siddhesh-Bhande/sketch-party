@@ -27,6 +27,25 @@ def dump(msg: WireModel) -> dict[str, Any]:
     return msg.model_dump(by_alias=True)
 
 
+# --- Shared drawing models ---------------------------------------------------
+
+
+class Point(WireModel):
+    """A single normalized (0..1) coordinate on the drawing canvas."""
+
+    x: float
+    y: float
+
+
+class Stroke(WireModel):
+    """A client-generated polyline; `id` makes stroke updates idempotent."""
+
+    id: str
+    color: str
+    size: int
+    points: list[Point]
+
+
 # --- Client messages (incoming) ---------------------------------------------
 
 
@@ -54,8 +73,28 @@ class PlayAgainMsg(WireModel):
     type: Literal["playAgain"] = "playAgain"
 
 
+class StrokeMsg(WireModel):
+    type: Literal["stroke"] = "stroke"
+    stroke: Stroke
+
+
+class UndoMsg(WireModel):
+    type: Literal["undo"] = "undo"
+
+
+class ClearCanvasMsg(WireModel):
+    type: Literal["clearCanvas"] = "clearCanvas"
+
+
 ClientMessage = Annotated[
-    JoinMsg | StartGameMsg | ChooseWordMsg | GuessMsg | PlayAgainMsg,
+    JoinMsg
+    | StartGameMsg
+    | ChooseWordMsg
+    | GuessMsg
+    | PlayAgainMsg
+    | StrokeMsg
+    | UndoMsg
+    | ClearCanvasMsg,
     Field(discriminator="type"),
 ]
 client_adapter: TypeAdapter[ClientMessage] = TypeAdapter(ClientMessage)
@@ -154,3 +193,21 @@ class FinalScore(WireModel):
 class GameOverMsg(WireModel):
     type: Literal["gameOver"] = "gameOver"
     scores: list[FinalScore]
+
+
+class StrokeBroadcastMsg(WireModel):
+    """One new/updated stroke, broadcast to everyone except the drawer."""
+
+    type: Literal["strokeBroadcast"] = "strokeBroadcast"
+    stroke: Stroke
+
+
+class CanvasReplaceMsg(WireModel):
+    """Full stroke-list replace: used for undo, and mid-turn replay on join."""
+
+    type: Literal["canvasReplace"] = "canvasReplace"
+    strokes: list[Stroke]
+
+
+class CanvasClearedMsg(WireModel):
+    type: Literal["canvasCleared"] = "canvasCleared"
