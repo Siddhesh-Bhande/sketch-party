@@ -5,10 +5,10 @@ interface ColorSwatch {
   value: string
 }
 
-// Solid colors only, no gradients. The eraser paints the paper background color.
+// Solid colors only, no gradients. The eraser paints the canvas background
+// color (#ffffff), so it truly clears rather than leaving a tinted mark.
 const PALETTE: ColorSwatch[] = [
   { label: 'Black', value: '#1b1e28' },
-  { label: 'White', value: '#ffffff' },
   { label: 'Red', value: '#e63946' },
   { label: 'Orange', value: '#f4a261' },
   { label: 'Yellow', value: '#ffd166' },
@@ -17,7 +17,7 @@ const PALETTE: ColorSwatch[] = [
   { label: 'Purple', value: '#8338ec' },
   { label: 'Pink', value: '#ef476f' },
   { label: 'Brown', value: '#6f4518' },
-  { label: 'Eraser', value: '#f6f3ec' },
+  { label: 'Eraser', value: '#ffffff' },
 ]
 
 interface BrushSize {

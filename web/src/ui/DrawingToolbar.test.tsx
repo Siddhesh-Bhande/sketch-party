@@ -35,13 +35,13 @@ describe('DrawingToolbar', () => {
     expect(onColorChange).toHaveBeenCalledWith('#457b9d')
   })
 
-  it('includes an eraser swatch that paints the paper background color', async () => {
+  it('includes an eraser swatch that paints the canvas background color', async () => {
     const user = userEvent.setup()
     const { onColorChange } = renderToolbar()
 
     await user.click(screen.getByRole('button', { name: 'Eraser' }))
 
-    expect(onColorChange).toHaveBeenCalledWith('#f6f3ec')
+    expect(onColorChange).toHaveBeenCalledWith('#ffffff')
   })
 
   it('marks the active brush size as pressed and others as not pressed', () => {
