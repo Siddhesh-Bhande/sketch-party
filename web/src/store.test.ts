@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  appendEvent,
   applyServerMessage,
   deriveScreen,
   initialGameState,
   useGameStore,
+  type GameEvent,
   type GameState,
 } from './store'
 import type { PlayerView, RoomStateMsg, Stroke } from './protocol'
@@ -21,6 +23,11 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     error: null,
     strokes: [],
     wordChoices: [],
+    events: [],
+    lastGuessResult: null,
+    turnReveal: null,
+    finalScores: null,
+    myWord: null,
     ...overrides,
   }
 }
@@ -137,7 +144,7 @@ describe('applyServerMessage', () => {
     expect(patch.error).toBe('room not found')
   })
 
-  it('messages not relevant yet return an empty patch (state unchanged)', () => {
+  it('timerTick with no room returns an empty patch (state unchanged)', () => {
     const state = makeState()
     const patch = applyServerMessage(state, { type: 'timerTick', secondsLeft: 30 })
 
@@ -222,6 +229,274 @@ describe('applyServerMessage', () => {
   })
 })
 
+function makeRoom(
+  overrides: Partial<NonNullable<GameState['room']>> = {},
+): NonNullable<GameState['room']> {
+  return {
+    code: 'WXYZ',
+    phase: 'word_select',
+    players: [makePlayer(), makePlayer({ id: 'p2', name: 'Grace', score: 10 })],
+    round: 1,
+    totalRounds: 3,
+    currentDrawerId: 'p1',
+    youAreDrawer: false,
+    wordLength: null,
+    secondsLeft: null,
+    ...overrides,
+  }
+}
+
+describe('appendEvent', () => {
+  it('appends an event with a generated id', () => {
+    const events = appendEvent([], 'hello')
+
+    expect(events).toHaveLength(1)
+    expect(events[0]?.text).toBe('hello')
+    expect(typeof events[0]?.id).toBe('string')
+    expect(events[0]?.id.length).toBeGreaterThan(0)
+  })
+
+  it('keeps existing events and appends the new one last', () => {
+    const existing: GameEvent[] = [{ id: 'a', text: 'first' }]
+    const events = appendEvent(existing, 'second')
+
+    expect(events.map((e) => e.text)).toEqual(['first', 'second'])
+  })
+
+  it('caps the feed at 50 events, dropping the oldest', () => {
+    let events: GameEvent[] = []
+    for (let i = 0; i < 55; i++) {
+      events = appendEvent(events, `event-${i}`)
+    }
+
+    expect(events).toHaveLength(50)
+    expect(events[0]?.text).toBe('event-5')
+    expect(events[49]?.text).toBe('event-54')
+  })
+
+  it('does not mutate the input array', () => {
+    const existing: GameEvent[] = [{ id: 'a', text: 'first' }]
+    appendEvent(existing, 'second')
+
+    expect(existing).toHaveLength(1)
+  })
+})
+
+describe('applyServerMessage: game-loop messages', () => {
+  it('turnStarted transitions the room to drawing and sets drawer flags for the drawer', () => {
+    const state = makeState({
+      me: { playerId: 'p1', name: 'Ada' },
+      room: makeRoom({ phase: 'word_select', currentDrawerId: null, youAreDrawer: false }),
+    })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: 'apple',
+    })
+
+    expect(patch.room?.phase).toBe('drawing')
+    expect(patch.room?.currentDrawerId).toBe('p1')
+    expect(patch.room?.youAreDrawer).toBe(true)
+    expect(patch.room?.wordLength).toBe(5)
+    expect(patch.room?.secondsLeft).toBe(60)
+    expect(patch.myWord).toBe('apple')
+  })
+
+  it('turnStarted sets youAreDrawer false and myWord null for a guesser', () => {
+    const state = makeState({
+      me: { playerId: 'p2', name: 'Grace' },
+      room: makeRoom({ phase: 'word_select', currentDrawerId: null, youAreDrawer: false }),
+    })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: null,
+    })
+
+    expect(patch.room?.youAreDrawer).toBe(false)
+    expect(patch.myWord).toBeNull()
+  })
+
+  it('turnStarted clears turnReveal and lastGuessResult from the previous turn', () => {
+    const state = makeState({
+      me: { playerId: 'p2', name: 'Grace' },
+      room: makeRoom(),
+      turnReveal: { word: 'boat', scores: [] },
+      lastGuessResult: { result: 'correct', points: 100 },
+    })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: null,
+    })
+
+    expect(patch.turnReveal).toBeNull()
+    expect(patch.lastGuessResult).toBeNull()
+  })
+
+  it('turnStarted appends an "is drawing" event', () => {
+    const state = makeState({ me: { playerId: 'p2', name: 'Grace' }, room: makeRoom() })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: null,
+    })
+
+    expect(patch.events).toHaveLength(1)
+    expect(patch.events?.[0]?.text).toBe('Ada is drawing')
+  })
+
+  it('turnStarted does not set room when state.room is null', () => {
+    const state = makeState({ me: { playerId: 'p1', name: 'Ada' }, room: null })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: 'apple',
+    })
+
+    expect(patch.room).toBeUndefined()
+    expect(patch.myWord).toBe('apple')
+  })
+
+  it('timerTick updates room.secondsLeft and leaves the rest of room unchanged', () => {
+    const room = makeRoom({ phase: 'drawing', secondsLeft: 45 })
+    const state = makeState({ room })
+    const patch = applyServerMessage(state, { type: 'timerTick', secondsLeft: 30 })
+
+    expect(patch.room).toEqual({ ...room, secondsLeft: 30 })
+  })
+
+  it('guessResult sets lastGuessResult and does not append an event', () => {
+    const state = makeState({ room: makeRoom() })
+    const patch = applyServerMessage(state, {
+      type: 'guessResult',
+      result: 'correct',
+      points: 100,
+    })
+
+    expect(patch.lastGuessResult).toEqual({ result: 'correct', points: 100 })
+    expect(patch.events).toBeUndefined()
+  })
+
+  it('playerGuessedCorrectly appends an event', () => {
+    const state = makeState({ room: makeRoom() })
+    const patch = applyServerMessage(state, {
+      type: 'playerGuessedCorrectly',
+      playerId: 'p2',
+      name: 'Grace',
+    })
+
+    expect(patch.events).toHaveLength(1)
+    expect(patch.events?.[0]?.text).toBe('Grace guessed the word!')
+  })
+
+  it('turnEnded transitions to turn_end, updates matching player scores, and sets turnReveal', () => {
+    const state = makeState({
+      room: makeRoom({
+        phase: 'drawing',
+        players: [
+          makePlayer({ id: 'p1', score: 0 }),
+          makePlayer({ id: 'p2', name: 'Grace', score: 10 }),
+        ],
+      }),
+    })
+    const scores = [
+      { playerId: 'p1', score: 50, gained: 50 },
+      { playerId: 'p2', score: 110, gained: 100 },
+    ]
+    const patch = applyServerMessage(state, { type: 'turnEnded', word: 'apple', scores })
+
+    expect(patch.room?.phase).toBe('turn_end')
+    expect(patch.room?.players?.find((p) => p.id === 'p1')?.score).toBe(50)
+    expect(patch.room?.players?.find((p) => p.id === 'p2')?.score).toBe(110)
+    expect(patch.turnReveal).toEqual({ word: 'apple', scores })
+    expect(patch.events?.[0]?.text).toBe('The word was apple')
+  })
+
+  it('turnEnded leaves scores of players not present in msg.scores unchanged', () => {
+    const state = makeState({
+      room: makeRoom({
+        players: [makePlayer({ id: 'p1', score: 0 }), makePlayer({ id: 'p3', score: 25 })],
+      }),
+    })
+    const patch = applyServerMessage(state, {
+      type: 'turnEnded',
+      word: 'apple',
+      scores: [{ playerId: 'p1', score: 50, gained: 50 }],
+    })
+
+    expect(patch.room?.players?.find((p) => p.id === 'p3')?.score).toBe(25)
+  })
+
+  it('turnEnded does not set room when state.room is null', () => {
+    const state = makeState({ room: null })
+    const patch = applyServerMessage(state, {
+      type: 'turnEnded',
+      word: 'apple',
+      scores: [],
+    })
+
+    expect(patch.room).toBeUndefined()
+    expect(patch.turnReveal).toEqual({ word: 'apple', scores: [] })
+  })
+
+  it('gameOver transitions to game_over and sets finalScores', () => {
+    const state = makeState({ room: makeRoom({ phase: 'turn_end' }) })
+    const scores = [
+      { playerId: 'p1', name: 'Ada', score: 150 },
+      { playerId: 'p2', name: 'Grace', score: 200 },
+    ]
+    const patch = applyServerMessage(state, { type: 'gameOver', scores })
+
+    expect(patch.room?.phase).toBe('game_over')
+    expect(patch.finalScores).toEqual(scores)
+    expect(patch.events?.[0]?.text).toBe('Game over')
+  })
+
+  it('gameOver does not set room when state.room is null', () => {
+    const state = makeState({ room: null })
+    const patch = applyServerMessage(state, { type: 'gameOver', scores: [] })
+
+    expect(patch.room).toBeUndefined()
+    expect(patch.finalScores).toEqual([])
+  })
+
+  it('roomState clears turnReveal, lastGuessResult, and myWord but leaves events alone', () => {
+    const state = makeState({
+      events: [{ id: 'a', text: 'existing' }],
+      turnReveal: { word: 'boat', scores: [] },
+      lastGuessResult: { result: 'correct', points: 100 },
+      myWord: 'boat',
+    })
+    const patch = applyServerMessage(state, makeRoomStateMsg({ phase: 'word_select' }))
+
+    expect(patch.turnReveal).toBeNull()
+    expect(patch.lastGuessResult).toBeNull()
+    expect(patch.myWord).toBeNull()
+    expect(patch.events).toBeUndefined()
+  })
+})
+
 describe('useGameStore.applyLocalStroke', () => {
   beforeEach(() => {
     useGameStore.setState({ ...initialGameState })
@@ -255,6 +530,24 @@ describe('useGameStore.reset', () => {
     useGameStore.getState().reset()
 
     expect(useGameStore.getState().strokes).toEqual([])
+  })
+
+  it('clears the game-loop fields back to their initial values', () => {
+    useGameStore.setState({
+      events: [{ id: 'a', text: 'hello' }],
+      lastGuessResult: { result: 'correct', points: 100 },
+      turnReveal: { word: 'boat', scores: [] },
+      finalScores: [{ playerId: 'p1', name: 'Ada', score: 100 }],
+      myWord: 'boat',
+    })
+
+    useGameStore.getState().reset()
+
+    expect(useGameStore.getState().events).toEqual([])
+    expect(useGameStore.getState().lastGuessResult).toBeNull()
+    expect(useGameStore.getState().turnReveal).toBeNull()
+    expect(useGameStore.getState().finalScores).toBeNull()
+    expect(useGameStore.getState().myWord).toBeNull()
   })
 })
 

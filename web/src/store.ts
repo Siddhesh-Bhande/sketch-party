@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 
-import type { GamePhase, PlayerView, ServerMessage, Stroke } from './protocol'
+import type {
+  FinalScore,
+  GamePhase,
+  PlayerView,
+  ServerMessage,
+  Stroke,
+  TurnScore,
+} from './protocol'
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed'
 
@@ -21,6 +28,12 @@ export interface RoomState {
   secondsLeft: number | null
 }
 
+/** A single entry in the capped activity feed (drawing started, guesses, reveals, ...). */
+export interface GameEvent {
+  id: string
+  text: string
+}
+
 export interface GameState {
   status: ConnectionStatus
   me: Me
@@ -29,6 +42,16 @@ export interface GameState {
   strokes: Stroke[]
   /** Words offered to the drawer by the latest `wordChoices` message. */
   wordChoices: string[]
+  /** Capped activity feed (drawing started, guesses, reveals, ...), newest last. */
+  events: GameEvent[]
+  /** Private feedback for the current player's own most recent guess. */
+  lastGuessResult: { result: string; points: number } | null
+  /** Word reveal and per-player score deltas from the turn that just ended. */
+  turnReveal: { word: string; scores: TurnScore[] } | null
+  /** Final leaderboard once the game ends. */
+  finalScores: FinalScore[] | null
+  /** The word the current drawer is drawing; null for everyone else. */
+  myWord: string | null
 }
 
 export type Screen = 'home' | 'lobby' | 'game' | 'gameover'
@@ -40,6 +63,23 @@ export const initialGameState: GameState = {
   error: null,
   strokes: [],
   wordChoices: [],
+  events: [],
+  lastGuessResult: null,
+  turnReveal: null,
+  finalScores: null,
+  myWord: null,
+}
+
+/** Maximum number of entries kept in the activity feed. */
+const MAX_EVENTS = 50
+
+/**
+ * Appends a new event with a generated id to `events`, capping the result to
+ * the last `MAX_EVENTS` entries (newest last). Never mutates `events`.
+ */
+export function appendEvent(events: GameEvent[], text: string): GameEvent[] {
+  const next = [...events, { id: crypto.randomUUID(), text }]
+  return next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next
 }
 
 /**
@@ -76,6 +116,11 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
           secondsLeft: msg.secondsLeft,
         },
         me: { ...state.me, playerId: msg.yourPlayerId },
+        // A fresh roomState means a new word-select/lobby: stale reveal
+        // state from the previous turn must not leak forward.
+        turnReveal: null,
+        lastGuessResult: null,
+        myWord: null,
       }
 
     case 'playerJoined': {
@@ -113,8 +158,68 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
     case 'wordChoices':
       return { wordChoices: msg.choices }
 
-    case 'turnStarted':
-      return { strokes: [], wordChoices: [] }
+    case 'turnStarted': {
+      const patch: Partial<GameState> = {
+        strokes: [],
+        wordChoices: [],
+        turnReveal: null,
+        lastGuessResult: null,
+        myWord: msg.word ?? null,
+        events: appendEvent(state.events, `${msg.drawerName} is drawing`),
+      }
+      if (state.room) {
+        patch.room = {
+          ...state.room,
+          phase: 'drawing',
+          currentDrawerId: msg.drawerId,
+          youAreDrawer: state.me.playerId === msg.drawerId,
+          wordLength: msg.wordLength,
+          secondsLeft: msg.turnSeconds,
+        }
+      }
+      return patch
+    }
+
+    case 'timerTick': {
+      if (!state.room) return {}
+      return { room: { ...state.room, secondsLeft: msg.secondsLeft } }
+    }
+
+    case 'guessResult':
+      return { lastGuessResult: { result: msg.result, points: msg.points } }
+
+    case 'playerGuessedCorrectly':
+      return { events: appendEvent(state.events, `${msg.name} guessed the word!`) }
+
+    case 'turnEnded': {
+      const scoreById = new Map(msg.scores.map((s) => [s.playerId, s.score]))
+      const patch: Partial<GameState> = {
+        turnReveal: { word: msg.word, scores: msg.scores },
+        events: appendEvent(state.events, `The word was ${msg.word}`),
+      }
+      if (state.room) {
+        patch.room = {
+          ...state.room,
+          phase: 'turn_end',
+          players: state.room.players.map((p) => {
+            const score = scoreById.get(p.id)
+            return score === undefined ? p : { ...p, score }
+          }),
+        }
+      }
+      return patch
+    }
+
+    case 'gameOver': {
+      const patch: Partial<GameState> = {
+        finalScores: msg.scores,
+        events: appendEvent(state.events, 'Game over'),
+      }
+      if (state.room) {
+        patch.room = { ...state.room, phase: 'game_over' }
+      }
+      return patch
+    }
 
     default:
       return {}
