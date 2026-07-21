@@ -134,6 +134,29 @@ describe('useGameSocket', () => {
     ])
   })
 
+  it('sendStroke, sendUndo, and sendClearCanvas emit their frames and no-op when not open', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const socket = currentSocket()
+    const stroke = { id: 's1', color: '#1b1e28', size: 4, points: [{ x: 0.1, y: 0.2 }] }
+    act(() => result.current.sendStroke(stroke)) // socket not open yet
+    act(() => result.current.sendUndo())
+    act(() => result.current.sendClearCanvas())
+    expect(socket.sent).toHaveLength(0)
+
+    act(() => socket.open()) // sends the join frame
+    act(() => result.current.sendStroke(stroke))
+    act(() => result.current.sendUndo())
+    act(() => result.current.sendClearCanvas())
+
+    expect(socket.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>)).toEqual([
+      { type: 'join', name: 'Alex' },
+      { type: 'stroke', stroke },
+      { type: 'undo' },
+      { type: 'clearCanvas' },
+    ])
+  })
+
   it('reopening closes the prior socket and detaches it so its events do not clobber status', () => {
     const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
     act(() => result.current.joinRoom('AAAA', 'Alex'))

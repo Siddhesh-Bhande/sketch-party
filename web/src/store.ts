@@ -27,6 +27,8 @@ export interface GameState {
   room: RoomState | null
   error: string | null
   strokes: Stroke[]
+  /** Words offered to the drawer by the latest `wordChoices` message. */
+  wordChoices: string[]
 }
 
 export type Screen = 'home' | 'lobby' | 'game' | 'gameover'
@@ -37,6 +39,7 @@ export const initialGameState: GameState = {
   room: null,
   error: null,
   strokes: [],
+  wordChoices: [],
 }
 
 /**
@@ -107,8 +110,11 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
     case 'canvasCleared':
       return { strokes: [] }
 
+    case 'wordChoices':
+      return { wordChoices: msg.choices }
+
     case 'turnStarted':
-      return { strokes: [] }
+      return { strokes: [], wordChoices: [] }
 
     default:
       return {}

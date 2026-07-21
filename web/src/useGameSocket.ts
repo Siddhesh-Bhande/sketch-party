@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 import { config } from './config'
-import type { ClientMessage } from './protocol'
+import type { ClientMessage, Stroke } from './protocol'
 import { parseServerMessage } from './protocol'
 import { useGameStore } from './store'
 
@@ -135,6 +135,12 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
   )
   const guess = useCallback((text: string) => sendMessage({ type: 'guess', text }), [sendMessage])
   const playAgain = useCallback(() => sendMessage({ type: 'playAgain' }), [sendMessage])
+  const sendStroke = useCallback(
+    (stroke: Stroke) => sendMessage({ type: 'stroke', stroke }),
+    [sendMessage],
+  )
+  const sendUndo = useCallback(() => sendMessage({ type: 'undo' }), [sendMessage])
+  const sendClearCanvas = useCallback(() => sendMessage({ type: 'clearCanvas' }), [sendMessage])
 
   const disconnect = useCallback(() => {
     socketRef.current?.close()
@@ -155,6 +161,9 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
     chooseWord,
     guess,
     playAgain,
+    sendStroke,
+    sendUndo,
+    sendClearCanvas,
     sendMessage,
     disconnect,
   }

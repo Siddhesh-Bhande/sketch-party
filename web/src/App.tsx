@@ -1,3 +1,4 @@
+import { Game } from './screens/Game'
 import { GamePlaceholder } from './screens/GamePlaceholder'
 import { Home } from './screens/Home'
 import { Lobby } from './screens/Lobby'
@@ -15,6 +16,14 @@ export function App() {
     case 'lobby':
       return <Lobby startGame={socket.startGame} />
     case 'game':
+      return (
+        <Game
+          chooseWord={socket.chooseWord}
+          sendStroke={socket.sendStroke}
+          sendUndo={socket.sendUndo}
+          sendClearCanvas={socket.sendClearCanvas}
+        />
+      )
     case 'gameover':
       return <GamePlaceholder />
   }

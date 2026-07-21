@@ -20,6 +20,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     room: null,
     error: null,
     strokes: [],
+    wordChoices: [],
     ...overrides,
   }
 }
@@ -193,6 +194,31 @@ describe('applyServerMessage', () => {
     })
 
     expect(patch.strokes).toEqual([])
+  })
+
+  it('wordChoices sets the offered words', () => {
+    const state = makeState()
+    const patch = applyServerMessage(state, {
+      type: 'wordChoices',
+      choices: ['cat', 'dog', 'boat'],
+    })
+
+    expect(patch.wordChoices).toEqual(['cat', 'dog', 'boat'])
+  })
+
+  it('turnStarted clears any leftover word choices for the new turn', () => {
+    const state = makeState({ wordChoices: ['cat', 'dog', 'boat'] })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 60,
+      word: null,
+    })
+
+    expect(patch.wordChoices).toEqual([])
   })
 })
 
