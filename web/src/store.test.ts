@@ -28,6 +28,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     turnReveal: null,
     finalScores: null,
     myWord: null,
+    turnSeconds: 0,
     ...overrides,
   }
 }
@@ -304,6 +305,26 @@ describe('applyServerMessage: game-loop messages', () => {
     expect(patch.room?.wordLength).toBe(5)
     expect(patch.room?.secondsLeft).toBe(60)
     expect(patch.myWord).toBe('apple')
+    expect(patch.turnSeconds).toBe(60)
+  })
+
+  it('turnStarted sets store.turnSeconds to the full turn duration, independent of secondsLeft', () => {
+    const state = makeState({
+      me: { playerId: 'p1', name: 'Ada' },
+      room: makeRoom({ phase: 'word_select', currentDrawerId: null, youAreDrawer: false }),
+      turnSeconds: 0,
+    })
+    const patch = applyServerMessage(state, {
+      type: 'turnStarted',
+      drawerId: 'p1',
+      drawerName: 'Ada',
+      round: 1,
+      wordLength: 5,
+      turnSeconds: 90,
+      word: 'apple',
+    })
+
+    expect(patch.turnSeconds).toBe(90)
   })
 
   it('turnStarted sets youAreDrawer false and myWord null for a guesser', () => {
@@ -539,6 +560,7 @@ describe('useGameStore.reset', () => {
       turnReveal: { word: 'boat', scores: [] },
       finalScores: [{ playerId: 'p1', name: 'Ada', score: 100 }],
       myWord: 'boat',
+      turnSeconds: 90,
     })
 
     useGameStore.getState().reset()
@@ -548,6 +570,7 @@ describe('useGameStore.reset', () => {
     expect(useGameStore.getState().turnReveal).toBeNull()
     expect(useGameStore.getState().finalScores).toBeNull()
     expect(useGameStore.getState().myWord).toBeNull()
+    expect(useGameStore.getState().turnSeconds).toBe(0)
   })
 })
 

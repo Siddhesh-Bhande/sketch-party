@@ -52,6 +52,8 @@ export interface GameState {
   finalScores: FinalScore[] | null
   /** The word the current drawer is drawing; null for everyone else. */
   myWord: string | null
+  /** Full duration (seconds) of the current turn, for rendering the timer bar's fill ratio. */
+  turnSeconds: number
 }
 
 export type Screen = 'home' | 'lobby' | 'game' | 'gameover'
@@ -68,6 +70,7 @@ export const initialGameState: GameState = {
   turnReveal: null,
   finalScores: null,
   myWord: null,
+  turnSeconds: 0,
 }
 
 /** Maximum number of entries kept in the activity feed. */
@@ -165,6 +168,7 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
         turnReveal: null,
         lastGuessResult: null,
         myWord: msg.word ?? null,
+        turnSeconds: msg.turnSeconds,
         events: appendEvent(state.events, `${msg.drawerName} is drawing`),
       }
       if (state.room) {

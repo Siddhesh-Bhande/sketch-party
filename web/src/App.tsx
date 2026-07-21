@@ -1,5 +1,5 @@
 import { Game } from './screens/Game'
-import { GamePlaceholder } from './screens/GamePlaceholder'
+import { GameOver } from './screens/GameOver'
 import { Home } from './screens/Home'
 import { Lobby } from './screens/Lobby'
 import { deriveScreen, useGameStore } from './store'
@@ -19,12 +19,13 @@ export function App() {
       return (
         <Game
           chooseWord={socket.chooseWord}
+          guess={socket.guess}
           sendStroke={socket.sendStroke}
           sendUndo={socket.sendUndo}
           sendClearCanvas={socket.sendClearCanvas}
         />
       )
     case 'gameover':
-      return <GamePlaceholder />
+      return <GameOver playAgain={socket.playAgain} />
   }
 }
