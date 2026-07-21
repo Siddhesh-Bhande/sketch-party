@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { GamePhase, PlayerView, ServerMessage } from './protocol'
+import type { GamePhase, PlayerView, ServerMessage, Stroke } from './protocol'
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed'
 
@@ -26,6 +26,7 @@ export interface GameState {
   me: Me
   room: RoomState | null
   error: string | null
+  strokes: Stroke[]
 }
 
 export type Screen = 'home' | 'lobby' | 'game' | 'gameover'
@@ -35,6 +36,19 @@ export const initialGameState: GameState = {
   me: { playerId: null, name: null },
   room: null,
   error: null,
+  strokes: [],
+}
+
+/**
+ * Upserts `stroke` into `strokes` by id: replaces the matching stroke in
+ * place if present, otherwise appends it. Never mutates `strokes`.
+ */
+function upsertStroke(strokes: Stroke[], stroke: Stroke): Stroke[] {
+  const index = strokes.findIndex((s) => s.id === stroke.id)
+  if (index === -1) return [...strokes, stroke]
+  const next = strokes.slice()
+  next[index] = stroke
+  return next
 }
 
 /**
@@ -84,6 +98,18 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
     case 'error':
       return { error: msg.message }
 
+    case 'strokeBroadcast':
+      return { strokes: upsertStroke(state.strokes, msg.stroke) }
+
+    case 'canvasReplace':
+      return { strokes: msg.strokes }
+
+    case 'canvasCleared':
+      return { strokes: [] }
+
+    case 'turnStarted':
+      return { strokes: [] }
+
     default:
       return {}
   }
@@ -110,6 +136,8 @@ export interface GameStore extends GameState {
   setError: (error: string | null) => void
   setMe: (me: Partial<Me>) => void
   ingest: (msg: ServerMessage) => void
+  /** Optimistic local upsert for the drawer, applied before the network round-trip. */
+  applyLocalStroke: (stroke: Stroke) => void
   reset: () => void
 }
 
@@ -119,5 +147,6 @@ export const useGameStore = create<GameStore>((set) => ({
   setError: (error) => set({ error }),
   setMe: (me) => set((state) => ({ me: { ...state.me, ...me } })),
   ingest: (msg) => set((state) => applyServerMessage(state, msg)),
+  applyLocalStroke: (stroke) => set((state) => ({ strokes: upsertStroke(state.strokes, stroke) })),
   reset: () => set({ ...initialGameState }),
 }))
