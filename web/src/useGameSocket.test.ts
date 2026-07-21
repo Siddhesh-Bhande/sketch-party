@@ -134,6 +134,21 @@ describe('useGameSocket', () => {
     ])
   })
 
+  it('reopening closes the prior socket and detaches it so its events do not clobber status', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('AAAA', 'Alex'))
+    const first = currentSocket()
+    act(() => first.open())
+    act(() => result.current.joinRoom('BBBB', 'Alex'))
+    const second = currentSocket()
+    expect(second).not.toBe(first)
+    expect(first.readyState).toBe(3) // old socket was closed
+    act(() => second.open())
+    act(() => first.close()) // a stray late event on the old socket
+    expect(useGameStore.getState().status).toBe('open')
+    expect(second.url).toBe('ws://localhost:8000/ws/BBBB')
+  })
+
   it('onclose sets status to closed', () => {
     const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
     act(() => result.current.joinRoom('WXYZ', 'Alex'))

@@ -44,6 +44,16 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
 
   const openSocket = useCallback(
     (code: string, name: string, playerId?: string) => {
+      // Close any prior socket first, detaching its handlers so a late close/error
+      // event from the old connection cannot clobber the new one's status.
+      const previous = socketRef.current
+      if (previous) {
+        previous.onopen = null
+        previous.onmessage = null
+        previous.onclose = null
+        previous.onerror = null
+        previous.close()
+      }
       nameRef.current = name
       setStatus('connecting')
       setError(null)

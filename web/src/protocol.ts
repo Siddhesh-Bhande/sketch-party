@@ -80,7 +80,7 @@ export interface TurnStartedMsg {
   round: number
   wordLength: number
   turnSeconds: number
-  word?: string
+  word: string | null
 }
 
 export interface GuessResultMsg {

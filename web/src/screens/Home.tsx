@@ -17,11 +17,13 @@ export interface HomeProps {
 /** Create-or-join landing screen. Renders when the player has no room yet. */
 export function Home({ createRoom, joinRoom }: HomeProps) {
   const error = useGameStore((state) => state.error)
+  const status = useGameStore((state) => state.status)
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
 
+  const connecting = status === 'connecting'
   const trimmedName = name.trim()
-  const canCreate = trimmedName.length > 0
+  const canCreate = trimmedName.length > 0 && !connecting
   const canJoin = canCreate && code.length === CODE_LENGTH
 
   function handleCreate() {
