@@ -211,6 +211,7 @@ class GameHub:
             you_are_drawer=drawer_id == player_id,
             word_length=word_length,
             seconds_left=seconds_left,
+            turn_seconds=room.settings.turn_seconds,
             your_player_id=player_id,
         )
 

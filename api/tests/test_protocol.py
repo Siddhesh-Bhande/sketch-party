@@ -41,6 +41,7 @@ def test_dump_emits_camelcase_and_type() -> None:
         you_are_drawer=False,
         word_length=None,
         seconds_left=None,
+        turn_seconds=240,
         your_player_id="p1",
     )
     data = dump(msg)

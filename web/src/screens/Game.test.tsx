@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PlayerView } from '../protocol'
-import type { RoomState } from '../store'
+import type { GameState, RoomState } from '../store'
 import { initialGameState, useGameStore } from '../store'
 import { Game } from './Game'
 
@@ -11,11 +11,10 @@ function makePlayer(overrides: Partial<PlayerView> = {}): PlayerView {
   return { id: 'p1', name: 'Ada', color: '#e63946', score: 0, connected: true, ...overrides }
 }
 
-function seedRoom(overrides: Partial<RoomState> = {}, wordChoices: string[] = []) {
+function seedRoom(roomOverrides: Partial<RoomState> = {}, stateOverrides: Partial<GameState> = {}) {
   useGameStore.setState({
     ...initialGameState,
     me: { playerId: 'p1', name: 'Ada' },
-    wordChoices,
     room: {
       code: 'WXYZ',
       phase: 'word_select',
@@ -26,14 +25,16 @@ function seedRoom(overrides: Partial<RoomState> = {}, wordChoices: string[] = []
       youAreDrawer: false,
       wordLength: null,
       secondsLeft: null,
-      ...overrides,
+      ...roomOverrides,
     },
+    ...stateOverrides,
   })
 }
 
 function renderGame(overrides: Partial<Parameters<typeof Game>[0]> = {}) {
   const props = {
     chooseWord: vi.fn(),
+    guess: vi.fn(),
     sendStroke: vi.fn(),
     sendUndo: vi.fn(),
     sendClearCanvas: vi.fn(),
@@ -65,6 +66,7 @@ describe('Game', () => {
     const { container } = render(
       <Game
         chooseWord={vi.fn()}
+        guess={vi.fn()}
         sendStroke={vi.fn()}
         sendUndo={vi.fn()}
         sendClearCanvas={vi.fn()}
@@ -76,9 +78,13 @@ describe('Game', () => {
   describe('word_select, drawer', () => {
     it('shows the word choices as buttons and calls chooseWord on click', async () => {
       const user = userEvent.setup()
-      seedRoom({ phase: 'word_select', youAreDrawer: true }, ['cat', 'dog', 'boat'])
+      seedRoom(
+        { phase: 'word_select', youAreDrawer: true },
+        { wordChoices: ['cat', 'dog', 'boat'] },
+      )
       const { chooseWord } = renderGame()
 
+      expect(screen.getByText('Choose a word to draw')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'cat' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'dog' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'boat' })).toBeInTheDocument()
@@ -98,42 +104,123 @@ describe('Game', () => {
   })
 
   describe('drawing, drawer', () => {
-    it('renders an editable canvas and the toolbar', () => {
-      seedRoom({ phase: 'drawing', youAreDrawer: true, wordLength: 4 })
+    it('renders an editable canvas, the toolbar, the timer, and the secret word', () => {
+      seedRoom(
+        { phase: 'drawing', youAreDrawer: true, wordLength: 4, secondsLeft: 45 },
+        { myWord: 'cake', turnSeconds: 60 },
+      )
       renderGame()
 
       expect(screen.getByRole('img', { name: 'Drawing canvas' })).toBeInTheDocument()
       expect(screen.getByRole('group', { name: 'Color' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument()
+      expect(screen.getByRole('timer')).toBeInTheDocument()
+      expect(screen.getByText('You are drawing: cake')).toBeInTheDocument()
+      // The drawer does not guess, so there is no guess box.
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
   })
 
   describe('drawing, guesser', () => {
-    it('renders a read-only canvas, no toolbar, and the masked word', () => {
-      seedRoom({
-        phase: 'drawing',
-        youAreDrawer: false,
-        currentDrawerId: 'p1',
-        wordLength: 5,
-      })
+    it('renders a read-only canvas, no toolbar, the masked word, and a guess box', () => {
+      seedRoom(
+        {
+          phase: 'drawing',
+          youAreDrawer: false,
+          currentDrawerId: 'p1',
+          wordLength: 5,
+          secondsLeft: 20,
+        },
+        { turnSeconds: 60 },
+      )
       renderGame()
 
       expect(screen.getByRole('img', { name: 'Drawing canvas' })).toBeInTheDocument()
       expect(screen.queryByRole('group', { name: 'Color' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
-      expect(screen.getByText('Ada is drawing')).toBeInTheDocument()
       expect(screen.getByLabelText('Word: 5 letters')).toBeInTheDocument()
+      expect(screen.getByRole('textbox')).toBeInTheDocument()
+      expect(screen.queryByText(/You are drawing/)).not.toBeInTheDocument()
+    })
+
+    it('marks the drawer and the local player in the scoreboard', () => {
+      seedRoom({
+        phase: 'drawing',
+        youAreDrawer: false,
+        currentDrawerId: 'p2',
+        wordLength: 5,
+      })
+      renderGame()
+
+      const drawerRow = screen.getByText('Grace').closest('li') as HTMLElement
+      expect(within(drawerRow).getByText('drawing')).toBeInTheDocument()
+      const meRow = screen.getByText('Ada').closest('li') as HTMLElement
+      expect(within(meRow).getByText('you')).toBeInTheDocument()
+    })
+
+    it('submits a guess through the injected guess callback', async () => {
+      const user = userEvent.setup()
+      seedRoom({ phase: 'drawing', youAreDrawer: false, currentDrawerId: 'p2', wordLength: 5 })
+      const { guess } = renderGame()
+
+      await user.type(screen.getByRole('textbox'), 'kite{Enter}')
+      expect(guess).toHaveBeenCalledWith('kite')
+    })
+
+    it('shows guess feedback from the store', () => {
+      seedRoom(
+        { phase: 'drawing', youAreDrawer: false, currentDrawerId: 'p2', wordLength: 5 },
+        { lastGuessResult: { result: 'near', points: 0 } },
+      )
+      renderGame()
+
+      expect(screen.getByText('So close!')).toBeInTheDocument()
     })
   })
 
   describe('turn_end', () => {
-    it('shows a simple turn-over panel', () => {
-      seedRoom({ phase: 'turn_end', youAreDrawer: false })
+    it("reveals the word and each player's point gain, plus the updated scoreboard", () => {
+      seedRoom(
+        {
+          phase: 'turn_end',
+          players: [
+            makePlayer({ id: 'p1', name: 'Ada', score: 50 }),
+            makePlayer({ id: 'p2', name: 'Grace', score: 110 }),
+          ],
+        },
+        {
+          turnReveal: {
+            word: 'kite',
+            scores: [
+              { playerId: 'p1', score: 50, gained: 50 },
+              { playerId: 'p2', score: 110, gained: 100 },
+            ],
+          },
+        },
+      )
       renderGame()
 
-      expect(screen.getByText('Turn over')).toBeInTheDocument()
+      expect(screen.getByText('kite')).toBeInTheDocument()
+      expect(screen.getByText('+50')).toBeInTheDocument()
+      expect(screen.getByText('+100')).toBeInTheDocument()
+
+      // The scoreboard (a distinct, labeled list from the reveal panel's list)
+      // reflects the updated scores, sorted with the new leader first.
+      const scoreboard = screen.getByRole('list', { name: 'Scoreboard' })
+      const rows = within(scoreboard).getAllByRole('listitem')
+      expect(rows[0]).toHaveTextContent('Grace')
+      expect(rows[1]).toHaveTextContent('Ada')
     })
+  })
+
+  it('shows the scoreboard during turn_end even before the reveal arrives', () => {
+    // A reconnect in the interstitial delivers a roomState that nulls turnReveal;
+    // the turn_end screen must still show content, not go blank.
+    seedRoom({ phase: 'turn_end' }, { turnReveal: null })
+    renderGame()
+    const scoreboard = screen.getByRole('list', { name: 'Scoreboard' })
+    expect(within(scoreboard).getAllByRole('listitem')).toHaveLength(2)
   })
 })

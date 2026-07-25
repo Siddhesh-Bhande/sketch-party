@@ -127,6 +127,7 @@ class RoomStateMsg(WireModel):
     you_are_drawer: bool
     word_length: int | None
     seconds_left: int | None
+    turn_seconds: int
     your_player_id: str
 
 
