@@ -129,9 +129,6 @@ jobs:
       - name: Install Playwright browsers
         working-directory: web
         run: npx playwright install --with-deps chromium
-      - name: Build
-        working-directory: web
-        run: npm run build
       - name: Run e2e tests
         working-directory: web
         run: npm run test:e2e
