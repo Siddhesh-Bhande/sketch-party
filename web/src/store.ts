@@ -9,7 +9,7 @@ import type {
   TurnScore,
 } from './protocol'
 
-export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed'
+export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'reconnecting'
 
 export interface Me {
   playerId: string | null

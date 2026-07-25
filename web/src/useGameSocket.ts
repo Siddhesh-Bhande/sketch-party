@@ -8,6 +8,20 @@ import { useGameStore } from './store'
 const SESSION_KEY = 'sketch-party-session'
 const WS_OPEN = 1
 
+/** Backoff delays (ms) for reconnect attempts: 500ms, 1s, 2s, 4s, 8s, then capped at 8s. */
+const RECONNECT_BASE_DELAY_MS = 500
+const RECONNECT_MAX_DELAY_MS = 8000
+/** Give up after this many reconnect attempts and surface a friendly error. */
+const MAX_RECONNECT_ATTEMPTS = 6
+const RECONNECT_GAVE_UP_MESSAGE = 'Could not reconnect. Please refresh the page and rejoin.'
+
+/** The room/player identity needed to re-attach on reconnect. */
+interface Session {
+  code: string
+  name: string
+  playerId?: string
+}
+
 /** The slice of the WebSocket API this hook relies on, so tests can fake it. */
 export interface WebSocketLike {
   send(data: string): void
@@ -29,21 +43,41 @@ const defaultFactory: SocketFactory = (url) => new WebSocket(url) as unknown as 
 
 /**
  * Owns a single game WebSocket. The socket factory is injectable so this hook
- * and its consumers can be tested with no real network. Full auto-reconnect is
- * added in Phase 6; here the connection is opened by createRoom/joinRoom and the
- * status transitions are wired into the store.
+ * and its consumers can be tested with no real network. The connection is
+ * opened by createRoom/joinRoom and the status transitions are wired into the
+ * store. If the socket closes unexpectedly (not via a deliberate `disconnect()`),
+ * it auto-reconnects with exponential backoff, re-sending `join` with the
+ * stored playerId so the backend re-attaches the same player.
  */
 export function useGameSocket(options: UseGameSocketOptions = {}) {
   const socketFactory = options.socketFactory ?? defaultFactory
   const socketRef = useRef<WebSocketLike | null>(null)
-  const nameRef = useRef<string>('')
+
+  // Reconnect bookkeeping. These live in refs (not state) so the retry loop
+  // survives re-renders and isn't part of React's render cycle.
+  const sessionRef = useRef<Session | null>(null)
+  const deliberateCloseRef = useRef(false)
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Indirection so `openSocket` can call the latest `scheduleReconnect` even
+  // though the two are mutually recursive (openSocket schedules a reconnect on
+  // close; a reconnect calls back into openSocket).
+  const scheduleReconnectRef = useRef<() => void>(() => {})
 
   const setStatus = useGameStore((state) => state.setStatus)
   const setError = useGameStore((state) => state.setError)
   const ingest = useGameStore((state) => state.ingest)
 
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
+
   const openSocket = useCallback(
-    (code: string, name: string, playerId?: string) => {
+    (code: string, name: string, playerId?: string, isReconnectAttempt = false) => {
+      clearReconnectTimer()
       // Close any prior socket first, detaching its handlers so a late close/error
       // event from the old connection cannot clobber the new one's status.
       const previous = socketRef.current
@@ -54,13 +88,18 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
         previous.onerror = null
         previous.close()
       }
-      nameRef.current = name
-      setStatus('connecting')
+      deliberateCloseRef.current = false
+      if (!isReconnectAttempt) {
+        reconnectAttemptsRef.current = 0
+      }
+      sessionRef.current = { code, name, playerId }
+      setStatus(isReconnectAttempt ? 'reconnecting' : 'connecting')
       setError(null)
       const socket = socketFactory(`${config.wsUrl}/ws/${code}`)
       socketRef.current = socket
 
       socket.onopen = () => {
+        reconnectAttemptsRef.current = 0
         setStatus('open')
         const join: ClientMessage = playerId
           ? { type: 'join', name, playerId }
@@ -73,21 +112,57 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
         if (!message) return
         ingest(message)
         if (message.type === 'roomState') {
+          const session = sessionRef.current
+          if (session) sessionRef.current = { ...session, playerId: message.yourPlayerId }
           try {
             sessionStorage.setItem(
               SESSION_KEY,
-              JSON.stringify({ code, playerId: message.yourPlayerId, name: nameRef.current }),
+              JSON.stringify({ code, playerId: message.yourPlayerId, name }),
             )
           } catch {
             // Ignore storage failures (private mode, quota); reconnect is best effort.
           }
         }
       }
-      socket.onclose = () => setStatus('closed')
-      socket.onerror = () => setStatus('closed')
+      socket.onclose = () => {
+        if (deliberateCloseRef.current) {
+          setStatus('closed')
+          return
+        }
+        scheduleReconnectRef.current()
+      }
+      socket.onerror = () => {
+        // A WebSocket error is always followed by a close event; the actual
+        // status transition and reconnect scheduling happen in onclose.
+      }
     },
-    [socketFactory, setStatus, setError, ingest],
+    [socketFactory, setStatus, setError, ingest, clearReconnectTimer],
   )
+
+  const scheduleReconnect = useCallback(() => {
+    const session = sessionRef.current
+    if (!session) {
+      setStatus('closed')
+      return
+    }
+    if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      setStatus('closed')
+      setError(RECONNECT_GAVE_UP_MESSAGE)
+      return
+    }
+    const attempt = reconnectAttemptsRef.current
+    reconnectAttemptsRef.current += 1
+    setStatus('reconnecting')
+    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS)
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null
+      openSocket(session.code, session.name, session.playerId, true)
+    }, delay)
+  }, [openSocket, setStatus, setError])
+
+  useEffect(() => {
+    scheduleReconnectRef.current = scheduleReconnect
+  }, [scheduleReconnect])
 
   const createRoom = useCallback(
     async (name: string, settings?: { rounds?: number; turnSeconds?: number }) => {
@@ -143,16 +218,23 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
   const sendClearCanvas = useCallback(() => sendMessage({ type: 'clearCanvas' }), [sendMessage])
 
   const disconnect = useCallback(() => {
-    socketRef.current?.close()
+    deliberateCloseRef.current = true
+    clearReconnectTimer()
+    reconnectAttemptsRef.current = 0
+    sessionRef.current = null
+    const socket = socketRef.current
     socketRef.current = null
-  }, [])
+    socket?.close()
+  }, [clearReconnectTimer])
 
   useEffect(() => {
     return () => {
+      deliberateCloseRef.current = true
+      clearReconnectTimer()
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [])
+  }, [clearReconnectTimer])
 
   return {
     createRoom,

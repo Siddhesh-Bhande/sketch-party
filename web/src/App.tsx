@@ -3,13 +3,13 @@ import { GameOver } from './screens/GameOver'
 import { Home } from './screens/Home'
 import { Lobby } from './screens/Lobby'
 import { deriveScreen, useGameStore } from './store'
+import { ConnectionOverlay } from './ui/ConnectionOverlay'
 import { useGameSocket } from './useGameSocket'
 
-export function App() {
-  const socket = useGameSocket()
-  const state = useGameStore()
-  const screen = deriveScreen(state)
-
+function renderScreen(
+  screen: ReturnType<typeof deriveScreen>,
+  socket: ReturnType<typeof useGameSocket>,
+) {
   switch (screen) {
     case 'home':
       return <Home createRoom={socket.createRoom} joinRoom={socket.joinRoom} />
@@ -28,4 +28,17 @@ export function App() {
     case 'gameover':
       return <GameOver playAgain={socket.playAgain} />
   }
+}
+
+export function App() {
+  const socket = useGameSocket()
+  const state = useGameStore()
+  const screen = deriveScreen(state)
+
+  return (
+    <>
+      <ConnectionOverlay status={state.status} />
+      {renderScreen(screen, socket)}
+    </>
+  )
 }
