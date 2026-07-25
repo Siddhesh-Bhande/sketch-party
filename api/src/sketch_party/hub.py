@@ -248,6 +248,24 @@ class GameHub:
     ) -> str:
         async with self._lock(code):
             room = self._get_room(code)
+            if player_id_hint is not None and player_id_hint in room.players:
+                # Reconnect: an away player re-sent `join` with their stored
+                # id. Re-attach the socket and flip them back online rather
+                # than going through add_player (which would raise on the
+                # duplicate id) - no PlayerJoinedMsg, just a fresh roomState
+                # to everyone so the roster/connected flags reconcile.
+                player_id = player_id_hint
+                room.reconnect(player_id)
+                await self._connections.connect(code, player_id, sender)
+                if room.phase is GamePhase.DRAWING:
+                    await self._connections.send(
+                        code,
+                        player_id,
+                        CanvasReplaceMsg(strokes=list(self._strokes.get(code, []))),
+                    )
+                await self._broadcast_room_state(room)
+                return player_id
+
             player_id = player_id_hint or uuid.uuid4().hex
             truncated_name = name[: self._settings.max_name_length]
             room.add_player(player_id, truncated_name)

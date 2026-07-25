@@ -72,6 +72,11 @@ class Room:
         if player_id in self.players:
             self.players[player_id].connected = False
 
+    def reconnect(self, player_id: str) -> None:
+        if player_id not in self.players:
+            raise RoomError("player not in room")
+        self.players[player_id].connected = True
+
     def remove_player(self, player_id: str) -> None:
         self.players.pop(player_id, None)
         if player_id in self.order:

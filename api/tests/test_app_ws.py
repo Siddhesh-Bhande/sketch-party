@@ -182,19 +182,26 @@ def test_binary_frame_from_guesser_does_not_leave_ghost_connection() -> None:
             assert left["playerId"]
 
 
-def test_join_rejected_by_room_error_closes_with_distinct_code() -> None:
-    """A RoomError during the join handshake (e.g. duplicate player id) must
-    close with a different code (4409) than a malformed first message
-    (4400), so a future client can tell "rejected" apart from "garbled"."""
+def test_join_rejected_by_room_error_closes_with_distinct_code(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A RoomError during the join handshake (e.g. a full room) must close
+    with a different code (4409) than a malformed first message (4400), so a
+    future client can tell "rejected" apart from "garbled".
+
+    This used to trigger the RoomError with a duplicate player id, but
+    reconnect support (see test_reconnect.py) now treats a join whose id is
+    already in the room as a valid reconnect rather than an error - so a
+    full room is used here instead to keep exercising the 4409 plumbing.
+    """
+    monkeypatch.setenv("MAX_PLAYERS", "1")
     app = create_app()
     with TestClient(app) as client:
         code = client.post("/rooms", json={}).json()["code"]
         with client.websocket_connect(f"/ws/{code}") as a:
-            a.send_json({"type": "join", "name": "Alex", "playerId": "dup"})
+            a.send_json({"type": "join", "name": "Alex"})
             _wait_for(a, "roomState")
 
             with client.websocket_connect(f"/ws/{code}") as b:
-                b.send_json({"type": "join", "name": "AlexAgain", "playerId": "dup"})
+                b.send_json({"type": "join", "name": "Sam"})
                 error = b.receive_json()
                 assert error["type"] == "error"
                 with pytest.raises(WebSocketDisconnect) as excinfo:
