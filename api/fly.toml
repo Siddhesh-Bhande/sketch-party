@@ -1,0 +1,40 @@
+# Fly.io deploy config for the Sketch Party backend.
+#
+# Rooms live in this process's memory - there is no database or Redis, and
+# no session affinity mechanism. That means this app MUST run as exactly one
+# always-on machine:
+#   - min_machines_running = 1 keeps a machine up at all times.
+#   - auto_stop_machines = false stops Fly from suspending the sole machine
+#     on idle: if it were stopped and later restarted, every in-memory room
+#     would silently vanish along with it.
+#   - No `[[vm]]` count or `fly scale count N>1` - a second machine would
+#     get its own empty room table, and clients could be routed to either
+#     one, splitting a single game's players across two processes.
+# Scaling out to multiple machines would need room state to move to
+# something shared (e.g. Redis pub/sub) - see the README's "Decisions and
+# tradeoffs" section for that as documented future work.
+app = "sketch-party"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  path = "/healthz"
+  method = "GET"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+
+[env]
+  # Placeholder - set this to the deployed frontend's real origin (the
+  # Vercel URL, and/or the portfolio domain if embedding via iframe) before
+  # going live. A comma-separated list is accepted.
+  ALLOWED_ORIGINS = "http://localhost:5173"

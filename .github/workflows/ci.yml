@@ -77,6 +77,14 @@ jobs:
       - name: Test
         run: uv run pytest -v
 
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t sketch-party-api api
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
