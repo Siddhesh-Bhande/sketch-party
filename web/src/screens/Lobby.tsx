@@ -84,7 +84,10 @@ export function Lobby({ startGame }: LobbyProps) {
               <p className="text-xs font-medium tracking-wide text-ink-muted uppercase">
                 Room code
               </p>
-              <p className="font-mono text-3xl font-semibold tracking-[0.2em] text-ink">
+              <p
+                data-testid="room-code"
+                className="font-mono text-3xl font-semibold tracking-[0.2em] text-ink"
+              >
                 {room.code}
               </p>
             </div>
