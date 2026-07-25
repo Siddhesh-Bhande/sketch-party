@@ -23,9 +23,9 @@ class FakeSocket implements WebSocketLike {
   send(data: string) {
     this.sent.push(data)
   }
-  close() {
+  close(code?: number) {
     this.readyState = 3
-    this.onclose?.(null)
+    this.onclose?.(code === undefined ? null : { code })
   }
   open() {
     this.readyState = 1
@@ -262,6 +262,7 @@ describe('useGameSocket auto-reconnect', () => {
     })
     const second = currentSocket()
     act(() => second.open())
+    act(() => second.receive(JSON.stringify(roomState()))) // confirmed join resets backoff
     expect(useGameStore.getState().status).toBe('open')
 
     // A second unexpected close should restart the backoff from 500ms, not
@@ -305,6 +306,40 @@ describe('useGameSocket auto-reconnect', () => {
       vi.advanceTimersByTime(30_000)
     })
     expect(FakeSocket.last).toBe(socketCountBefore)
+  })
+
+  it('does not reconnect when the server rejects the connection (4400-4409)', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const socket = currentSocket()
+    act(() => socket.open()) // handshake accepted...
+    act(() => socket.close(4409)) // ...but the join was rejected (e.g. room full)
+    expect(useGameStore.getState().status).toBe('closed')
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(FakeSocket.last).toBe(socket) // no reconnect was attempted
+  })
+
+  it('bounds retries when each handshake opens but the join is never confirmed', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    let socket = currentSocket()
+    // No roomState is ever delivered: the transport opens but the join never
+    // confirms. The counter must NOT reset on open, or this loops forever.
+    act(() => socket.open())
+    act(() => socket.close(1006)) // transient close -> retry
+    const delays = [500, 1000, 2000, 4000, 8000, 8000]
+    for (const delay of delays) {
+      expect(useGameStore.getState().status).toBe('reconnecting')
+      act(() => {
+        vi.advanceTimersByTime(delay)
+      })
+      socket = currentSocket()
+      act(() => socket.open()) // used to reset the backoff (the bug)
+      act(() => socket.close(1006))
+    }
+    expect(useGameStore.getState().status).toBe('closed')
   })
 
   it('clears the pending reconnect timer on unmount', () => {

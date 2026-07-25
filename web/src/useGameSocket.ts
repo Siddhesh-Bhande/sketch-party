@@ -99,7 +99,6 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
       socketRef.current = socket
 
       socket.onopen = () => {
-        reconnectAttemptsRef.current = 0
         setStatus('open')
         const join: ClientMessage = playerId
           ? { type: 'join', name, playerId }
@@ -112,6 +111,11 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
         if (!message) return
         ingest(message)
         if (message.type === 'roomState') {
+          // A roomState is the first proof the join actually succeeded: the
+          // handshake opening is not enough, since the server can accept the
+          // socket and then reject the join. Only now is it safe to reset the
+          // backoff counter (otherwise an accept-then-reject loop never gives up).
+          reconnectAttemptsRef.current = 0
           const session = sessionRef.current
           if (session) sessionRef.current = { ...session, playerId: message.yourPlayerId }
           try {
@@ -124,8 +128,19 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
           }
         }
       }
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (deliberateCloseRef.current) {
+          setStatus('closed')
+          return
+        }
+        // Server-side rejections (4400 bad first message, 4403 origin,
+        // 4404 room gone, 4409 join rejected) are permanent; retrying would
+        // just loop. Stop and leave the error the server sent in place.
+        const closeCode =
+          typeof event === 'object' && event !== null && 'code' in event
+            ? (event as { code?: number }).code
+            : undefined
+        if (closeCode !== undefined && closeCode >= 4400 && closeCode <= 4409) {
           setStatus('closed')
           return
         }
