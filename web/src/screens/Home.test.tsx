@@ -69,4 +69,43 @@ describe('Home', () => {
     render(<Home createRoom={vi.fn()} joinRoom={vi.fn()} />)
     expect(screen.getByLabelText('Your nickname')).toHaveAttribute('maxLength', '20')
   })
+
+  it('prefills the room code field from initialCode and focuses the nickname input', () => {
+    render(<Home createRoom={vi.fn()} joinRoom={vi.fn()} initialCode="WXYZ" />)
+
+    expect(screen.getByLabelText('Room code')).toHaveValue('WXYZ')
+    expect(screen.getByLabelText('Your nickname')).toHaveFocus()
+  })
+
+  it('enables Join immediately once a name is typed when a code was prefilled', async () => {
+    const user = userEvent.setup()
+    const joinRoom = vi.fn()
+    render(<Home createRoom={vi.fn()} joinRoom={joinRoom} initialCode="WXYZ" />)
+
+    const joinButton = screen.getByRole('button', { name: 'Join' })
+    expect(joinButton).toBeDisabled()
+
+    await user.type(screen.getByLabelText('Your nickname'), 'Sam')
+    expect(joinButton).toBeEnabled()
+
+    await user.click(joinButton)
+    expect(joinRoom).toHaveBeenCalledWith('WXYZ', 'Sam')
+  })
+
+  it('does not prefill or steal focus when initialCode is absent', () => {
+    render(<Home createRoom={vi.fn()} joinRoom={vi.fn()} />)
+
+    expect(screen.getByLabelText('Room code')).toHaveValue('')
+    expect(screen.getByLabelText('Your nickname')).not.toHaveFocus()
+  })
+
+  it('prefills and focuses even when initialCode arrives a render after mount', () => {
+    const { rerender } = render(<Home createRoom={vi.fn()} joinRoom={vi.fn()} />)
+    expect(screen.getByLabelText('Room code')).toHaveValue('')
+
+    rerender(<Home createRoom={vi.fn()} joinRoom={vi.fn()} initialCode="WXYZ" />)
+
+    expect(screen.getByLabelText('Room code')).toHaveValue('WXYZ')
+    expect(screen.getByLabelText('Your nickname')).toHaveFocus()
+  })
 })

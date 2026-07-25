@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useGameStore } from '../store'
 import { Button } from '../ui/Button'
@@ -12,14 +12,25 @@ const CODE_LENGTH = 4
 export interface HomeProps {
   createRoom: (name: string) => void
   joinRoom: (code: string, name: string) => void
+  /** Prefills the room code, e.g. from a `?room=CODE` deep link, and focuses the nickname field. */
+  initialCode?: string
 }
 
 /** Create-or-join landing screen. Renders when the player has no room yet. */
-export function Home({ createRoom, joinRoom }: HomeProps) {
+export function Home({ createRoom, joinRoom, initialCode }: HomeProps) {
   const error = useGameStore((state) => state.error)
   const status = useGameStore((state) => state.status)
   const [name, setName] = useState('')
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(initialCode ?? '')
+  const nameInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    // initialCode can arrive a render after mount (App resolves it asynchronously
+    // via useEntry), so this depends on it rather than running mount-only.
+    if (!initialCode) return
+    setCode(initialCode)
+    nameInputRef.current?.focus()
+  }, [initialCode])
 
   const connecting = status === 'connecting'
   const trimmedName = name.trim()
@@ -67,6 +78,7 @@ export function Home({ createRoom, joinRoom }: HomeProps) {
           )}
 
           <TextInput
+            ref={nameInputRef}
             label="Your nickname"
             placeholder="Enter a nickname"
             value={name}
