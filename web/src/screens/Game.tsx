@@ -131,9 +131,9 @@ export function Game({ chooseWord, guess, sendStroke, sendUndo, sendClearCanvas 
           </>
         )}
 
-        {room.phase === 'turn_end' && turnReveal && (
+        {room.phase === 'turn_end' && (
           <>
-            <TurnEndReveal reveal={turnReveal} players={room.players} />
+            {turnReveal && <TurnEndReveal reveal={turnReveal} players={room.players} />}
             <Scoreboard
               players={room.players}
               currentDrawerId={room.currentDrawerId}

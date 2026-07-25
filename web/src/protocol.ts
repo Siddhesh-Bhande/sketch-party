@@ -90,6 +90,7 @@ export interface RoomStateMsg {
   youAreDrawer: boolean
   wordLength: number | null
   secondsLeft: number | null
+  turnSeconds: number
   yourPlayerId: string
 }
 

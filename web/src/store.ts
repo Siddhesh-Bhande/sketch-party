@@ -119,6 +119,7 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
           secondsLeft: msg.secondsLeft,
         },
         me: { ...state.me, playerId: msg.yourPlayerId },
+        turnSeconds: msg.turnSeconds,
         // A fresh roomState means a new word-select/lobby: stale reveal
         // state from the previous turn must not leak forward.
         turnReveal: null,

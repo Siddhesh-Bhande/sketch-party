@@ -62,6 +62,7 @@ function roomState(): RoomStateMsg {
     youAreDrawer: false,
     wordLength: null,
     secondsLeft: null,
+    turnSeconds: 240,
     yourPlayerId: 'p1',
   }
 }

@@ -214,4 +214,13 @@ describe('Game', () => {
       expect(rows[1]).toHaveTextContent('Ada')
     })
   })
+
+  it('shows the scoreboard during turn_end even before the reveal arrives', () => {
+    // A reconnect in the interstitial delivers a roomState that nulls turnReveal;
+    // the turn_end screen must still show content, not go blank.
+    seedRoom({ phase: 'turn_end' }, { turnReveal: null })
+    renderGame()
+    const scoreboard = screen.getByRole('list', { name: 'Scoreboard' })
+    expect(within(scoreboard).getAllByRole('listitem')).toHaveLength(2)
+  })
 })
