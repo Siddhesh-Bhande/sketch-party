@@ -407,13 +407,21 @@ class GameHub:
             await self._broadcast_room_state(room)
         await self._call_timer(self._cancel_timer, code)
 
-    async def handle_disconnect(self, code: str, player_id: str) -> None:
+    async def handle_disconnect(self, code: str, player_id: str, sender: Sender) -> None:
         was_drawer_mid_turn = False
         async with self._lock(code):
             room = self._rooms.get(code)
             if room is None:
                 return
-            self._connections.disconnect(code, player_id)
+            if not self._connections.is_current(code, player_id, sender):
+                # A newer connection already superseded this one (the
+                # reconnect race: this socket's receive loop only just
+                # noticed it's dead, well after a fresher socket registered
+                # for the same player id). Treating this as a real
+                # disconnect would wrongly mark_away/PlayerLeft a player who
+                # is actually online on the newer socket - ignore it.
+                return
+            self._connections.disconnect(code, player_id, sender)
             if room.phase is GamePhase.LOBBY:
                 # No game in progress: drop the seat entirely rather than
                 # leaving a ghost player nobody can un-away.

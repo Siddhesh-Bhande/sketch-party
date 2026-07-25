@@ -191,7 +191,7 @@ def create_app() -> FastAPI:
                 except RoomError as exc:
                     await connections.send(code, player_id, ErrorMsg(message=str(exc)))
         except WebSocketDisconnect:
-            await hub.handle_disconnect(code, player_id)
+            await hub.handle_disconnect(code, player_id, websocket)
         except Exception:
             # A non-text (binary) frame makes receive_text() raise a bare
             # KeyError, not WebSocketDisconnect - without this clause that
@@ -199,7 +199,7 @@ def create_app() -> FastAPI:
             # registered as connected=True forever (a ghost seat). Always
             # run disconnect cleanup before letting the crash propagate.
             logger.exception("ws loop crashed for %s/%s", code, player_id)
-            await hub.handle_disconnect(code, player_id)
+            await hub.handle_disconnect(code, player_id, websocket)
             raise
 
     return app

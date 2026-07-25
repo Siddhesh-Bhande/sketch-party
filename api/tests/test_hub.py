@@ -357,7 +357,7 @@ async def test_disconnect_in_lobby_removes_player_and_empty_room() -> None:
     a = FakeWS()
     p1 = await h.hub.handle_connect(code, "P1", None, a)
 
-    await h.hub.handle_disconnect(code, p1)
+    await h.hub.handle_disconnect(code, p1, a)
 
     assert h.rooms.get(code) is None
 
@@ -375,7 +375,7 @@ async def test_disconnect_mid_turn_drawer_cancels_timer_and_advances() -> None:
     word = room.word_choices[0]
     await h.hub.handle_choose_word(code, p1, word)
 
-    await h.hub.handle_disconnect(code, p1)
+    await h.hub.handle_disconnect(code, p1, a)
 
     # cancel_timer is called defensively both by handle_disconnect and by
     # end_and_advance's own safety net; either way it must fire at least once.
