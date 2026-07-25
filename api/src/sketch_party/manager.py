@@ -68,9 +68,26 @@ class ConnectionManager:
     async def connect(self, code: str, player_id: str, sender: Sender) -> None:
         self._connections.setdefault(code, {})[player_id] = sender
 
-    def disconnect(self, code: str, player_id: str) -> None:
+    def is_current(self, code: str, player_id: str, sender: Sender) -> bool:
+        """Whether `sender` is still the live socket registered for this id.
+
+        A stale disconnect (an old socket's receive loop finally raising
+        after a newer one already reconnected for the same player) must not
+        be able to evict the newer socket - callers check this before
+        treating a disconnect as real.
+        """
         room_conns = self._connections.get(code)
         if room_conns is None:
+            return False
+        return room_conns.get(player_id) is sender
+
+    def disconnect(self, code: str, player_id: str, sender: Sender) -> None:
+        room_conns = self._connections.get(code)
+        if room_conns is None:
+            return
+        if room_conns.get(player_id) is not sender:
+            # A newer connection has already superseded this one; the stale
+            # socket has nothing left to clean up here.
             return
         room_conns.pop(player_id, None)
         if not room_conns:
@@ -99,4 +116,4 @@ class ConnectionManager:
         try:
             await sender.send_text(payload)
         except Exception:
-            self.disconnect(code, player_id)
+            self.disconnect(code, player_id, sender)

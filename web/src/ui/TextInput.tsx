@@ -1,10 +1,11 @@
-import type { InputHTMLAttributes } from 'react'
+import type { InputHTMLAttributes, Ref } from 'react'
 import { useId } from 'react'
 
 export interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string
   hint?: string
   errorText?: string
+  ref?: Ref<HTMLInputElement>
 }
 
 /** A labeled text input with focus ring and aria wiring for hint/error text. */
@@ -14,6 +15,7 @@ export function TextInput({
   errorText,
   id,
   className = '',
+  ref,
   ...props
 }: TextInputProps) {
   const generatedId = useId()
@@ -28,6 +30,7 @@ export function TextInput({
         {label}
       </label>
       <input
+        ref={ref}
         id={inputId}
         aria-describedby={describedBy}
         aria-invalid={errorText ? true : undefined}

@@ -52,6 +52,33 @@ def test_mark_away_keeps_player_but_flags_disconnected() -> None:
     assert "p1" in room.order
 
 
+def test_reconnect_marks_away_player_connected_again() -> None:
+    room = make_room()
+    room.add_player("p1", "Alex")
+    room.mark_away("p1")
+    assert room.players["p1"].connected is False
+    room.reconnect("p1")
+    assert room.players["p1"].connected is True
+    assert "p1" in room.order
+
+
+def test_reconnect_unknown_player_raises() -> None:
+    room = make_room()
+    try:
+        room.reconnect("ghost")
+        raise AssertionError("expected RoomError")
+    except RoomError:
+        pass
+
+
+def test_reconnect_already_connected_player_is_idempotent() -> None:
+    room = make_room()
+    room.add_player("p1", "Alex")
+    assert room.players["p1"].connected is True
+    room.reconnect("p1")
+    assert room.players["p1"].connected is True
+
+
 def test_remove_player_in_lobby_drops_them() -> None:
     room = make_room()
     room.add_player("p1", "Alex")

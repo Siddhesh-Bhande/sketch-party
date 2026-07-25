@@ -248,6 +248,24 @@ class GameHub:
     ) -> str:
         async with self._lock(code):
             room = self._get_room(code)
+            if player_id_hint is not None and player_id_hint in room.players:
+                # Reconnect: an away player re-sent `join` with their stored
+                # id. Re-attach the socket and flip them back online rather
+                # than going through add_player (which would raise on the
+                # duplicate id) - no PlayerJoinedMsg, just a fresh roomState
+                # to everyone so the roster/connected flags reconcile.
+                player_id = player_id_hint
+                room.reconnect(player_id)
+                await self._connections.connect(code, player_id, sender)
+                if room.phase is GamePhase.DRAWING:
+                    await self._connections.send(
+                        code,
+                        player_id,
+                        CanvasReplaceMsg(strokes=list(self._strokes.get(code, []))),
+                    )
+                await self._broadcast_room_state(room)
+                return player_id
+
             player_id = player_id_hint or uuid.uuid4().hex
             truncated_name = name[: self._settings.max_name_length]
             room.add_player(player_id, truncated_name)
@@ -389,13 +407,21 @@ class GameHub:
             await self._broadcast_room_state(room)
         await self._call_timer(self._cancel_timer, code)
 
-    async def handle_disconnect(self, code: str, player_id: str) -> None:
+    async def handle_disconnect(self, code: str, player_id: str, sender: Sender) -> None:
         was_drawer_mid_turn = False
         async with self._lock(code):
             room = self._rooms.get(code)
             if room is None:
                 return
-            self._connections.disconnect(code, player_id)
+            if not self._connections.is_current(code, player_id, sender):
+                # A newer connection already superseded this one (the
+                # reconnect race: this socket's receive loop only just
+                # noticed it's dead, well after a fresher socket registered
+                # for the same player id). Treating this as a real
+                # disconnect would wrongly mark_away/PlayerLeft a player who
+                # is actually online on the newer socket - ignore it.
+                return
+            self._connections.disconnect(code, player_id, sender)
             if room.phase is GamePhase.LOBBY:
                 # No game in progress: drop the seat entirely rather than
                 # leaving a ghost player nobody can un-away.

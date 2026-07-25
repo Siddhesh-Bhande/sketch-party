@@ -81,6 +81,33 @@ async def test_send_targets_one_and_disconnect_removes() -> None:
     await cm.connect("R", "p2", b)
     await cm.send("R", "p1", ErrorMsg(message="only-you"))
     assert len(a.sent) == 1 and b.sent == []
-    cm.disconnect("R", "p1")
+    cm.disconnect("R", "p1", a)
     await cm.broadcast("R", ErrorMsg(message="again"))
     assert len(a.sent) == 1  # unchanged
+
+
+async def test_is_current_reflects_the_live_sender_for_an_id() -> None:
+    cm = ConnectionManager()
+    a, b = FakeWS(), FakeWS()
+    await cm.connect("R", "p1", a)
+    assert cm.is_current("R", "p1", a) is True
+    assert cm.is_current("R", "p1", b) is False
+
+    await cm.connect("R", "p1", b)  # a newer socket supersedes a
+    assert cm.is_current("R", "p1", a) is False
+    assert cm.is_current("R", "p1", b) is True
+
+
+async def test_disconnect_from_superseded_sender_is_a_noop() -> None:
+    cm = ConnectionManager()
+    a, b = FakeWS(), FakeWS()
+    await cm.connect("R", "p1", a)
+    await cm.connect("R", "p1", b)  # b supersedes a, same id
+
+    cm.disconnect("R", "p1", a)  # stale: a is no longer the registered sender
+    await cm.send("R", "p1", ErrorMsg(message="still-here"))
+    assert len(b.sent) == 1  # b is untouched by a's stale disconnect
+
+    cm.disconnect("R", "p1", b)  # the real, current sender disconnecting
+    await cm.send("R", "p1", ErrorMsg(message="gone"))
+    assert len(b.sent) == 1  # unchanged: b really is gone now

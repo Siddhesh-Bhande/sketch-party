@@ -23,9 +23,9 @@ class FakeSocket implements WebSocketLike {
   send(data: string) {
     this.sent.push(data)
   }
-  close() {
+  close(code?: number) {
     this.readyState = 3
-    this.onclose?.(null)
+    this.onclose?.(code === undefined ? null : { code })
   }
   open() {
     this.readyState = 1
@@ -173,13 +173,186 @@ describe('useGameSocket', () => {
     expect(second.url).toBe('ws://localhost:8000/ws/BBBB')
   })
 
-  it('onclose sets status to closed', () => {
+  it('an unexpected onclose starts reconnecting rather than going straight to closed', () => {
     const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
     act(() => result.current.joinRoom('WXYZ', 'Alex'))
     const socket = currentSocket()
     act(() => socket.open())
     expect(useGameStore.getState().status).toBe('open')
     act(() => socket.close())
+    expect(useGameStore.getState().status).toBe('reconnecting')
+  })
+})
+
+describe('useGameSocket auto-reconnect', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('schedules a reconnect after an unexpected close and re-sends join with the stored playerId', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const first = currentSocket()
+    act(() => first.open())
+    act(() => first.receive(JSON.stringify(roomState())))
+
+    act(() => first.close()) // unexpected close, e.g. the server dropped the connection
+    expect(useGameStore.getState().status).toBe('reconnecting')
+
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    const second = currentSocket()
+    expect(second).not.toBe(first)
+    expect(second.url).toBe('ws://localhost:8000/ws/WXYZ')
+
+    act(() => second.open())
+    expect(parseSent(second, 0)).toEqual({ type: 'join', name: 'Alex', playerId: 'p1' })
+    expect(useGameStore.getState().status).toBe('open')
+  })
+
+  it('retries the very first failed connection attempt (waking a cold-started demo)', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const first = currentSocket()
+
+    act(() => first.close()) // the socket never opened at all
+    expect(useGameStore.getState().status).toBe('reconnecting')
+
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    const second = currentSocket()
+    expect(second).not.toBe(first)
+    expect(second.url).toBe('ws://localhost:8000/ws/WXYZ')
+    act(() => second.open())
+    expect(parseSent(second, 0)).toEqual({ type: 'join', name: 'Alex' })
+    expect(useGameStore.getState().status).toBe('open')
+  })
+
+  it('a deliberate disconnect does not schedule a reconnect', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const socket = currentSocket()
+    act(() => socket.open())
+
+    act(() => result.current.disconnect())
     expect(useGameStore.getState().status).toBe('closed')
+
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(FakeSocket.last).toBe(socket) // no new socket was ever created
+  })
+
+  it('resets the attempt counter after a successful reopen', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const first = currentSocket()
+    act(() => first.open())
+    act(() => first.receive(JSON.stringify(roomState())))
+
+    act(() => first.close())
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    const second = currentSocket()
+    act(() => second.open())
+    act(() => second.receive(JSON.stringify(roomState()))) // confirmed join resets backoff
+    expect(useGameStore.getState().status).toBe('open')
+
+    // A second unexpected close should restart the backoff from 500ms, not
+    // continue from the previous attempt count.
+    act(() => second.close())
+    act(() => {
+      vi.advanceTimersByTime(499)
+    })
+    expect(FakeSocket.last).toBe(second) // not yet reconnected
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    const third = currentSocket()
+    expect(third).not.toBe(second)
+  })
+
+  it('gives up after the max number of attempts and sets status to closed with a friendly error', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    let socket = currentSocket()
+    act(() => socket.open())
+    act(() => socket.receive(JSON.stringify(roomState())))
+
+    act(() => socket.close())
+    const delays = [500, 1000, 2000, 4000, 8000, 8000]
+    for (const delay of delays) {
+      expect(useGameStore.getState().status).toBe('reconnecting')
+      act(() => {
+        vi.advanceTimersByTime(delay)
+      })
+      socket = currentSocket()
+      act(() => socket.close()) // this reconnect attempt fails too
+    }
+
+    expect(useGameStore.getState().status).toBe('closed')
+    expect(useGameStore.getState().error).toBeTruthy()
+
+    // No further reconnect is scheduled once attempts are exhausted.
+    const socketCountBefore = FakeSocket.last
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(FakeSocket.last).toBe(socketCountBefore)
+  })
+
+  it('does not reconnect when the server rejects the connection (4400-4409)', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const socket = currentSocket()
+    act(() => socket.open()) // handshake accepted...
+    act(() => socket.close(4409)) // ...but the join was rejected (e.g. room full)
+    expect(useGameStore.getState().status).toBe('closed')
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(FakeSocket.last).toBe(socket) // no reconnect was attempted
+  })
+
+  it('bounds retries when each handshake opens but the join is never confirmed', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    let socket = currentSocket()
+    // No roomState is ever delivered: the transport opens but the join never
+    // confirms. The counter must NOT reset on open, or this loops forever.
+    act(() => socket.open())
+    act(() => socket.close(1006)) // transient close -> retry
+    const delays = [500, 1000, 2000, 4000, 8000, 8000]
+    for (const delay of delays) {
+      expect(useGameStore.getState().status).toBe('reconnecting')
+      act(() => {
+        vi.advanceTimersByTime(delay)
+      })
+      socket = currentSocket()
+      act(() => socket.open()) // used to reset the backoff (the bug)
+      act(() => socket.close(1006))
+    }
+    expect(useGameStore.getState().status).toBe('closed')
+  })
+
+  it('clears the pending reconnect timer on unmount', () => {
+    const { result, unmount } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const socket = currentSocket()
+    act(() => socket.open())
+    act(() => socket.close()) // schedules a reconnect
+
+    unmount()
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(FakeSocket.last).toBe(socket) // no reconnect happened after unmount
   })
 })
