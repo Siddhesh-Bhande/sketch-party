@@ -1,0 +1,13 @@
+# Keep the build context small and avoid shipping host-specific artifacts
+# (in particular .venv, which is platform-specific and not portable into
+# the python:3.12-slim image).
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+.env
+.git/
+*.log

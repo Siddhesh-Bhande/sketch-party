@@ -1,0 +1,30 @@
+name: Keep warm
+
+# Pings the deployed backend's /healthz on a schedule so a scaled-to-zero /
+# idle-suspended free-tier instance doesn't cold-start on the next real
+# visitor. Set the BACKEND_HEALTH_URL repository secret to the deployed
+# health check URL (e.g. https://sketch-party.fly.dev/healthz) once the
+# backend is live; until then this job skips itself instead of failing.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Ping backend health check
+    runs-on: ubuntu-latest
+    steps:
+      - name: curl /healthz
+        env:
+          HEALTH_URL: ${{ secrets.BACKEND_HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "BACKEND_HEALTH_URL secret is not set; skipping keep-warm ping."
+            exit 0
+          fi
+          curl -fsS --max-time 10 "$HEALTH_URL"
