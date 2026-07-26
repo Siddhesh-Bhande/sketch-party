@@ -29,6 +29,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     finalScores: null,
     myWord: null,
     turnSeconds: 0,
+    interstitialSeconds: 0,
     ...overrides,
   }
 }
@@ -446,12 +447,18 @@ describe('applyServerMessage: game-loop messages', () => {
       { playerId: 'p1', score: 50, gained: 50 },
       { playerId: 'p2', score: 110, gained: 100 },
     ]
-    const patch = applyServerMessage(state, { type: 'turnEnded', word: 'apple', scores })
+    const patch = applyServerMessage(state, {
+      type: 'turnEnded',
+      word: 'apple',
+      scores,
+      interstitialSeconds: 5,
+    })
 
     expect(patch.room?.phase).toBe('turn_end')
     expect(patch.room?.players?.find((p) => p.id === 'p1')?.score).toBe(50)
     expect(patch.room?.players?.find((p) => p.id === 'p2')?.score).toBe(110)
     expect(patch.turnReveal).toEqual({ word: 'apple', scores })
+    expect(patch.interstitialSeconds).toBe(5)
     expect(patch.events?.[0]?.text).toBe('The word was apple')
   })
 
@@ -465,6 +472,7 @@ describe('applyServerMessage: game-loop messages', () => {
       type: 'turnEnded',
       word: 'apple',
       scores: [{ playerId: 'p1', score: 50, gained: 50 }],
+      interstitialSeconds: 5,
     })
 
     expect(patch.room?.players?.find((p) => p.id === 'p3')?.score).toBe(25)
@@ -476,6 +484,7 @@ describe('applyServerMessage: game-loop messages', () => {
       type: 'turnEnded',
       word: 'apple',
       scores: [],
+      interstitialSeconds: 5,
     })
 
     expect(patch.room).toBeUndefined()

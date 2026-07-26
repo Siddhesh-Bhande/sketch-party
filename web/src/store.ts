@@ -54,6 +54,8 @@ export interface GameState {
   myWord: string | null
   /** Full duration (seconds) of the current turn, for rendering the timer bar's fill ratio. */
   turnSeconds: number
+  /** Seconds between the turn-end reveal and the next turn, for the interstitial countdown. */
+  interstitialSeconds: number
 }
 
 export type Screen = 'home' | 'lobby' | 'game' | 'gameover'
@@ -71,6 +73,7 @@ export const initialGameState: GameState = {
   finalScores: null,
   myWord: null,
   turnSeconds: 0,
+  interstitialSeconds: 0,
 }
 
 /** Maximum number of entries kept in the activity feed. */
@@ -200,6 +203,7 @@ export function applyServerMessage(state: GameState, msg: ServerMessage): Partia
       const scoreById = new Map(msg.scores.map((s) => [s.playerId, s.score]))
       const patch: Partial<GameState> = {
         turnReveal: { word: msg.word, scores: msg.scores },
+        interstitialSeconds: msg.interstitialSeconds,
         events: appendEvent(state.events, `The word was ${msg.word}`),
       }
       if (state.room) {

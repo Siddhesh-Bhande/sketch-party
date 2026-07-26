@@ -11,7 +11,7 @@ export function WordSelect({ choices, onChoose }: WordSelectProps) {
   return (
     <Panel className="flex flex-col gap-3 text-center">
       <h2 className="font-display text-xl text-ink">Choose a word to draw</h2>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2" data-testid="word-choices">
         {choices.map((word) => (
           <Button
             key={word}

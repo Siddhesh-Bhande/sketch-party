@@ -38,6 +38,7 @@ function renderGame(overrides: Partial<Parameters<typeof Game>[0]> = {}) {
     sendStroke: vi.fn(),
     sendUndo: vi.fn(),
     sendClearCanvas: vi.fn(),
+    leaveRoom: vi.fn(),
     ...overrides,
   }
   render(<Game {...props} />)
@@ -70,6 +71,7 @@ describe('Game', () => {
         sendStroke={vi.fn()}
         sendUndo={vi.fn()}
         sendClearCanvas={vi.fn()}
+        leaveRoom={vi.fn()}
       />,
     )
     expect(container).toBeEmptyDOMElement()

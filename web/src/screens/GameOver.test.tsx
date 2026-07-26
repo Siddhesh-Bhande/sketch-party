@@ -44,7 +44,7 @@ describe('GameOver', () => {
       players: [makePlayer({ id: 'p1' })],
       myPlayerId: 'p1',
     })
-    render(<GameOver playAgain={vi.fn()} />)
+    render(<GameOver playAgain={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: 'Game over' })).toBeInTheDocument()
   })
@@ -59,7 +59,7 @@ describe('GameOver', () => {
       players: [makePlayer({ id: 'p1' })],
       myPlayerId: 'p1',
     })
-    render(<GameOver playAgain={vi.fn()} />)
+    render(<GameOver playAgain={vi.fn()} leaveRoom={vi.fn()} />)
 
     const rows = screen.getAllByRole('listitem')
     expect(rows.map((row) => row.textContent)).toEqual([
@@ -78,7 +78,7 @@ describe('GameOver', () => {
       players: [makePlayer({ id: 'p1' })],
       myPlayerId: 'p1',
     })
-    render(<GameOver playAgain={vi.fn()} />)
+    render(<GameOver playAgain={vi.fn()} leaveRoom={vi.fn()} />)
 
     const winnerRow = screen.getByText('Grace').closest('li') as HTMLElement
     expect(within(winnerRow).getByText('Winner')).toBeInTheDocument()
@@ -96,7 +96,7 @@ describe('GameOver', () => {
       players: [makePlayer({ id: 'p1' })],
       myPlayerId: 'p1',
     })
-    render(<GameOver playAgain={vi.fn()} />)
+    render(<GameOver playAgain={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(
       within(screen.getByText('Ada').closest('li') as HTMLElement).getByText('Winner'),
@@ -117,7 +117,7 @@ describe('GameOver', () => {
       players: [makePlayer({ id: 'p1' }), makePlayer({ id: 'p2', name: 'Grace' })],
       myPlayerId: 'p1',
     })
-    render(<GameOver playAgain={playAgain} />)
+    render(<GameOver playAgain={playAgain} leaveRoom={vi.fn()} />)
 
     const button = screen.getByRole('button', { name: 'Play again' })
     await user.click(button)
@@ -130,7 +130,7 @@ describe('GameOver', () => {
       players: [makePlayer({ id: 'p1' }), makePlayer({ id: 'p2', name: 'Grace' })],
       myPlayerId: 'p2',
     })
-    render(<GameOver playAgain={vi.fn()} />)
+    render(<GameOver playAgain={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: 'Play again' })).not.toBeInTheDocument()
     expect(screen.getByText('Waiting for the host to start a new game.')).toBeInTheDocument()
@@ -143,7 +143,7 @@ describe('GameOver', () => {
       me: { playerId: null, name: null },
       room: null,
     })
-    render(<GameOver playAgain={vi.fn()} />)
+    render(<GameOver playAgain={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: 'Play again' })).toBeInTheDocument()
   })

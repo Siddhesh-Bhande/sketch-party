@@ -41,21 +41,21 @@ beforeEach(() => {
 describe('Lobby', () => {
   it('renders the room code', () => {
     seedRoom([makePlayer()])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByText('WXYZ')).toBeInTheDocument()
   })
 
   it('enables Start game for the host with 2 or more players', () => {
     seedRoom([makePlayer({ id: 'p1' }), makePlayer({ id: 'p2', name: 'Grace' })])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: 'Start game' })).toBeEnabled()
   })
 
   it('disables Start game for the host with only 1 player, and says why', () => {
     seedRoom([makePlayer({ id: 'p1' })])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     const startButton = screen.getByRole('button', { name: 'Start game' })
     expect(startButton).toBeDisabled()
@@ -64,7 +64,7 @@ describe('Lobby', () => {
 
   it('shows a waiting note for non-hosts instead of a Start button', () => {
     seedRoom([makePlayer({ id: 'p1' }), makePlayer({ id: 'p2', name: 'Grace' })], 'p2')
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: 'Start game' })).not.toBeInTheDocument()
     expect(screen.getByText('Waiting for the host to start')).toBeInTheDocument()
@@ -74,7 +74,7 @@ describe('Lobby', () => {
     const user = userEvent.setup()
     const startGame = vi.fn()
     seedRoom([makePlayer({ id: 'p1' }), makePlayer({ id: 'p2', name: 'Grace' })])
-    render(<Lobby startGame={startGame} />)
+    render(<Lobby startGame={startGame} leaveRoom={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: 'Start game' }))
     expect(startGame).toHaveBeenCalled()
@@ -82,7 +82,7 @@ describe('Lobby', () => {
 
   it('labels players[0] as the host in the player list', () => {
     seedRoom([makePlayer({ id: 'p1', name: 'Ada' }), makePlayer({ id: 'p2', name: 'Grace' })])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByText('Host')).toBeInTheDocument()
     expect(screen.getByText('Ada')).toBeInTheDocument()
@@ -91,7 +91,7 @@ describe('Lobby', () => {
 
   it('shows a live player count', () => {
     seedRoom([makePlayer({ id: 'p1' }), makePlayer({ id: 'p2', name: 'Grace' })])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByText('2 of 10 players')).toBeInTheDocument()
   })
@@ -104,7 +104,7 @@ describe('Lobby', () => {
       configurable: true,
     })
     seedRoom([makePlayer()])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: 'Copy' }))
 
@@ -117,7 +117,7 @@ describe('Lobby', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     openSpy.mockClear()
     seedRoom([makePlayer({ id: 'p1', name: 'Ada' })])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: /open a second player/i }))
 
@@ -132,7 +132,7 @@ describe('Lobby', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     openSpy.mockClear()
     seedRoom([makePlayer({ id: 'p1', name: 'Ada' }), makePlayer({ id: 'p2', name: 'Player 2' })])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: /open a second player/i }))
 
@@ -142,7 +142,7 @@ describe('Lobby', () => {
 
   it('renders a QR code for the join link once generated', async () => {
     seedRoom([makePlayer()])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     const img = await screen.findByAltText('QR code to join room WXYZ')
     expect(img).toHaveAttribute('src', DUMMY_DATA_URL)
@@ -156,7 +156,7 @@ describe('Lobby', () => {
       configurable: true,
     })
     seedRoom([makePlayer()])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     expect(screen.getByText(/\?room=WXYZ/)).toBeInTheDocument()
 
@@ -169,7 +169,7 @@ describe('Lobby', () => {
     const qrcode = await import('qrcode')
     vi.mocked(qrcode.toDataURL).mockRejectedValueOnce(new Error('canvas unavailable'))
     seedRoom([makePlayer()])
-    render(<Lobby startGame={vi.fn()} />)
+    render(<Lobby startGame={vi.fn()} leaveRoom={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText(/qr code unavailable/i)).toBeInTheDocument()

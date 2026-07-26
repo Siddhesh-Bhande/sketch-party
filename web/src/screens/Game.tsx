@@ -6,6 +6,8 @@ import { DrawingCanvas } from '../ui/DrawingCanvas'
 import { DrawingToolbar } from '../ui/DrawingToolbar'
 import { EventFeed } from '../ui/EventFeed'
 import { GuessInput } from '../ui/GuessInput'
+import { InterstitialCountdown } from '../ui/InterstitialCountdown'
+import { LeaveButton } from '../ui/LeaveButton'
 import { Panel } from '../ui/Panel'
 import { Scoreboard } from '../ui/Scoreboard'
 import { TimerBar } from '../ui/TimerBar'
@@ -21,6 +23,7 @@ export interface GameProps {
   sendStroke: (stroke: Stroke) => void
   sendUndo: () => void
   sendClearCanvas: () => void
+  leaveRoom: () => void
 }
 
 /** Underscore blanks standing in for the secret word's letters. */
@@ -45,7 +48,14 @@ function MaskedWord({ length }: { length: number | null }) {
  * a compact scoreboard, and the activity feed. `turn_end` reveals the word
  * and each player's point gain, followed by the updated scoreboard.
  */
-export function Game({ chooseWord, guess, sendStroke, sendUndo, sendClearCanvas }: GameProps) {
+export function Game({
+  chooseWord,
+  guess,
+  sendStroke,
+  sendUndo,
+  sendClearCanvas,
+  leaveRoom,
+}: GameProps) {
   const room = useGameStore((state) => state.room)
   const strokes = useGameStore((state) => state.strokes)
   const wordChoices = useGameStore((state) => state.wordChoices)
@@ -56,6 +66,7 @@ export function Game({ chooseWord, guess, sendStroke, sendUndo, sendClearCanvas 
   const events = useGameStore((state) => state.events)
   const turnReveal = useGameStore((state) => state.turnReveal)
   const turnSeconds = useGameStore((state) => state.turnSeconds)
+  const interstitialSeconds = useGameStore((state) => state.interstitialSeconds)
   const [color, setColor] = useState(DEFAULT_COLOR)
   const [size, setSize] = useState(DEFAULT_SIZE)
 
@@ -73,6 +84,8 @@ export function Game({ chooseWord, guess, sendStroke, sendUndo, sendClearCanvas 
   return (
     <main className="flex min-h-dvh flex-col items-center px-4 py-6">
       <div className="flex w-full max-w-sm flex-1 flex-col gap-3">
+        <LeaveButton onLeave={leaveRoom} />
+
         {room.phase === 'word_select' && room.youAreDrawer && (
           <WordSelect choices={wordChoices} onChoose={chooseWord} />
         )}
@@ -82,6 +95,12 @@ export function Game({ chooseWord, guess, sendStroke, sendUndo, sendClearCanvas 
             <p className="text-sm text-ink-muted">
               Waiting for {drawerName ?? 'the drawer'} to pick a word.
             </p>
+            <div
+              className="mx-auto mt-3 h-1.5 w-32 overflow-hidden rounded-full bg-line"
+              aria-hidden="true"
+            >
+              <div className="h-full w-1/3 rounded-full bg-accent motion-safe:animate-pulse" />
+            </div>
           </Panel>
         )}
 
@@ -134,6 +153,7 @@ export function Game({ chooseWord, guess, sendStroke, sendUndo, sendClearCanvas 
         {room.phase === 'turn_end' && (
           <>
             {turnReveal && <TurnEndReveal reveal={turnReveal} players={room.players} />}
+            <InterstitialCountdown seconds={interstitialSeconds} />
             <Scoreboard
               players={room.players}
               currentDrawerId={room.currentDrawerId}

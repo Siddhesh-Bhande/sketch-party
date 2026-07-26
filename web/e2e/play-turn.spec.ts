@@ -72,9 +72,9 @@ test.describe('two-client play-through', () => {
       const guesserSideWs: WebSocket = hostIsDrawer ? guesserWs : hostWs
 
       await expect(drawerPage.getByText(WORD_SELECT_HEADING)).toBeVisible()
-      // The word-choice panel is the only content on screen at this phase, so
-      // the first button on the page is the first word choice.
-      await drawerPage.getByRole('button').first().click()
+      // Pick the first word choice. Scope to the word-choices container so this
+      // does not accidentally match other page chrome (e.g. the Leave button).
+      await drawerPage.getByTestId('word-choices').getByRole('button').first().click()
 
       const drawingWordText = drawerPage.getByText(/^You are drawing: /)
       await expect(drawingWordText).toBeVisible()

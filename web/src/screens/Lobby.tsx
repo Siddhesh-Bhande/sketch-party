@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { PlayerView } from '../protocol'
 import { useGameStore } from '../store'
 import { Button } from '../ui/Button'
+import { LeaveButton } from '../ui/LeaveButton'
 import { Panel } from '../ui/Panel'
 import { PlayerChip } from '../ui/PlayerChip'
 import { useJoinQrCode } from '../useJoinQrCode'
@@ -12,6 +13,7 @@ const MIN_PLAYERS_TO_START = 2
 
 export interface LobbyProps {
   startGame: () => void
+  leaveRoom: () => void
 }
 
 /**
@@ -30,7 +32,7 @@ function nextGuestName(players: PlayerView[]): string {
 }
 
 /** Waiting room: room code, player roster, and a host-only start control. */
-export function Lobby({ startGame }: LobbyProps) {
+export function Lobby({ startGame, leaveRoom }: LobbyProps) {
   const room = useGameStore((state) => state.room)
   const myPlayerId = useGameStore((state) => state.me.playerId)
   const [copied, setCopied] = useState(false)
@@ -78,6 +80,9 @@ export function Lobby({ startGame }: LobbyProps) {
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
+        <div className="mb-2">
+          <LeaveButton onLeave={leaveRoom} />
+        </div>
         <Panel className="flex flex-col gap-5">
           <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper px-4 py-3">
             <div>
