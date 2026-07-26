@@ -146,6 +146,7 @@ export interface TurnEndedMsg {
   type: 'turnEnded'
   word: string
   scores: TurnScore[]
+  interstitialSeconds: number
 }
 
 export interface FinalScore {

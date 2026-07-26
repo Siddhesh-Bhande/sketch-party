@@ -18,7 +18,7 @@ function renderScreen(
         <Home createRoom={socket.createRoom} joinRoom={socket.joinRoom} initialCode={initialCode} />
       )
     case 'lobby':
-      return <Lobby startGame={socket.startGame} />
+      return <Lobby startGame={socket.startGame} leaveRoom={socket.leaveRoom} />
     case 'game':
       return (
         <Game
@@ -27,10 +27,11 @@ function renderScreen(
           sendStroke={socket.sendStroke}
           sendUndo={socket.sendUndo}
           sendClearCanvas={socket.sendClearCanvas}
+          leaveRoom={socket.leaveRoom}
         />
       )
     case 'gameover':
-      return <GameOver playAgain={socket.playAgain} />
+      return <GameOver playAgain={socket.playAgain} leaveRoom={socket.leaveRoom} />
   }
 }
 

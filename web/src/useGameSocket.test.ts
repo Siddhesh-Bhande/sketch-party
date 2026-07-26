@@ -182,6 +182,22 @@ describe('useGameSocket', () => {
     act(() => socket.close())
     expect(useGameStore.getState().status).toBe('reconnecting')
   })
+
+  it('leaveRoom closes the socket, clears the session, and resets the store', () => {
+    const { result } = renderHook(() => useGameSocket({ socketFactory: factory }))
+    act(() => result.current.joinRoom('WXYZ', 'Alex'))
+    const socket = currentSocket()
+    act(() => socket.open())
+    act(() => socket.receive(JSON.stringify(roomState())))
+    expect(useGameStore.getState().room).not.toBeNull()
+    expect(sessionStorage.getItem('sketch-party-session')).not.toBeNull()
+
+    act(() => result.current.leaveRoom())
+
+    expect(useGameStore.getState().room).toBeNull()
+    expect(sessionStorage.getItem('sketch-party-session')).toBeNull()
+    expect(socket.readyState).toBe(3) // closed, no reconnect scheduled
+  })
 })
 
 describe('useGameSocket auto-reconnect', () => {

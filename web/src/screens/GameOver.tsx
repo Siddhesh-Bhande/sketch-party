@@ -1,9 +1,11 @@
 import { useGameStore } from '../store'
 import { Button } from '../ui/Button'
+import { LeaveButton } from '../ui/LeaveButton'
 import { Panel } from '../ui/Panel'
 
 export interface GameOverProps {
   playAgain: () => void
+  leaveRoom: () => void
 }
 
 /**
@@ -11,7 +13,7 @@ export interface GameOverProps {
  * and a host-only "Play again" button. Host is the player at `room.players[0]`;
  * if `room` is gone (e.g. after a reset), the button always shows.
  */
-export function GameOver({ playAgain }: GameOverProps) {
+export function GameOver({ playAgain, leaveRoom }: GameOverProps) {
   const finalScores = useGameStore((state) => state.finalScores)
   const me = useGameStore((state) => state.me)
   const room = useGameStore((state) => state.room)
@@ -65,6 +67,7 @@ export function GameOver({ playAgain }: GameOverProps) {
               Waiting for the host to start a new game.
             </p>
           )}
+          <LeaveButton onLeave={leaveRoom} />
         </Panel>
       </div>
     </main>

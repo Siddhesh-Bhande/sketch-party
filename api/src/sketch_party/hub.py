@@ -470,7 +470,14 @@ class GameHub:
                 room.end_turn()
             word = room.turn.word
             scores = self._turn_scores(room)
-            await self._connections.broadcast(code, TurnEndedMsg(word=word, scores=scores))
+            await self._connections.broadcast(
+                code,
+                TurnEndedMsg(
+                    word=word,
+                    scores=scores,
+                    interstitial_seconds=self._settings.interstitial_seconds,
+                ),
+            )
             await self._call_timer(self._cancel_timer, code)
 
         await asyncio.sleep(self._settings.interstitial_seconds)

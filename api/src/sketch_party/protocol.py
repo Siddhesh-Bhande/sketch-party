@@ -183,6 +183,7 @@ class TurnEndedMsg(WireModel):
     type: Literal["turnEnded"] = "turnEnded"
     word: str
     scores: list[TurnScore]
+    interstitial_seconds: int
 
 
 class FinalScore(WireModel):

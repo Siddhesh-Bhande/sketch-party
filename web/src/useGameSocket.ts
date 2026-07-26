@@ -242,6 +242,19 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
     socket?.close()
   }, [clearReconnectTimer])
 
+  // Deliberately leave the room: close the socket, forget the saved session so
+  // a later refresh does not auto-rejoin, and reset the store back to Home. The
+  // server garbage-collects the room once the last player is gone.
+  const leaveRoom = useCallback(() => {
+    disconnect()
+    try {
+      sessionStorage.removeItem(SESSION_KEY)
+    } catch {
+      // Ignore storage failures (private mode, quota).
+    }
+    useGameStore.getState().reset()
+  }, [disconnect])
+
   useEffect(() => {
     return () => {
       deliberateCloseRef.current = true
@@ -263,5 +276,6 @@ export function useGameSocket(options: UseGameSocketOptions = {}) {
     sendClearCanvas,
     sendMessage,
     disconnect,
+    leaveRoom,
   }
 }
