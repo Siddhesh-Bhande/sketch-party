@@ -66,7 +66,7 @@ test.describe('design review screenshots', () => {
       const guesserSidePage = hostIsDrawer ? guesserPage : hostPage
 
       await expect(drawerPage.getByText(WORD_SELECT_HEADING)).toBeVisible()
-      await drawerPage.getByRole('button').first().click()
+      await drawerPage.getByTestId('word-choices').getByRole('button').first().click()
 
       await expect(drawerPage.getByText(/^You are drawing: /)).toBeVisible()
       await drawerPage.screenshot({
